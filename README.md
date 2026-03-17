@@ -213,7 +213,7 @@ uv run ruff format .   # format
 
 ## Configuration
 
-The full `config.yaml` schema is documented in [docs/ssd/06_CONFIG_SPEC.md](docs/ssd/06_CONFIG_SPEC.md).
+`config.yaml` schema.
 
 Key fields:
 
