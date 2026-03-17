@@ -25,7 +25,7 @@ ExecuteC2 provides a full teamserver with:
 
 ## Repository Structure
 
-```
+```text
 ExecuteC2/
 ├── src/executec2/          # Teamserver package (installed as `executec2`)
 │   ├── __main__.py         # CLI entry point (argparse → run_server)
@@ -171,26 +171,26 @@ The server starts an HTTPS API + WebSocket endpoint at `https://<host>:<port>`.
 
 ### CLI flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `--config`, `-c` | `config.yaml` | Path to config file (`EC2_CONFIG` env var) |
-| `--host` | from config | Override bind address (`EC2_HOST`) |
-| `--port`, `-p` | from config | Override listen port (`EC2_PORT`) |
-| `--debug` | false | Enable DEBUG logging (`EC2_DEBUG=1`) |
-| `--version`, `-v` | — | Print version and exit |
+| Flag              | Default       | Description                                |
+| ----------------- | ------------- | ------------------------------------------ |
+| `--config`, `-c`  | `config.yaml` | Path to config file (`EC2_CONFIG` env var) |
+| `--host`          | from config   | Override bind address (`EC2_HOST`)         |
+| `--port`, `-p`    | from config   | Override listen port (`EC2_PORT`)          |
+| `--debug`         | false         | Enable DEBUG logging (`EC2_DEBUG=1`)       |
+| `--version`, `-v` | —             | Print version and exit                     |
 
 ### Environment variable overrides
 
-| Variable | Effect |
-|---|---|
-| `EC2_CONFIG` | Config file path |
-| `EC2_HOST` | Bind address |
-| `EC2_PORT` | Listen port |
-| `EC2_DEBUG` | Enable debug logging (`1`, `true`, or `yes`) |
-| `EC2_DATA_DIR` | Override `server.data_dir` |
-| `EC2_TLS_CERT` | Override `server.tls_cert` |
-| `EC2_TLS_KEY` | Override `server.tls_key` |
-| `EC2_LOG_LEVEL` | Override `logging.level` |
+| Variable        | Effect                                       |
+| --------------- | -------------------------------------------- |
+| `EC2_CONFIG`    | Config file path                             |
+| `EC2_HOST`      | Bind address                                 |
+| `EC2_PORT`      | Listen port                                  |
+| `EC2_DEBUG`     | Enable debug logging (`1`, `true`, or `yes`) |
+| `EC2_DATA_DIR`  | Override `server.data_dir`                   |
+| `EC2_TLS_CERT`  | Override `server.tls_cert`                   |
+| `EC2_TLS_KEY`   | Override `server.tls_key`                    |
+| `EC2_LOG_LEVEL` | Override `logging.level`                     |
 
 ### Run tests
 
@@ -217,35 +217,17 @@ The full `config.yaml` schema is documented in [docs/ssd/06_CONFIG_SPEC.md](docs
 
 Key fields:
 
-| Field | Default | Description |
-|---|---|---|
-| `server.host` | `0.0.0.0` | Bind address |
-| `server.port` | `4321` | HTTPS + WebSocket port |
-| `server.data_dir` | `./data` | SQLite database and download storage |
-| `server.tls_cert` | — | TLS certificate path (required) |
-| `server.tls_key` | — | TLS private key path (required) |
-| `server.access_token_ttl` | `24` | Access token lifetime (hours) |
-| `server.refresh_token_ttl` | `168` | Refresh token lifetime (hours, 7 days) |
-| `server.auth_rate_limit` | `10` | Max auth attempts per IP per minute |
-| `operators` | — | `username: password` map |
-
----
-
-## Design Documents
-
-Spec-driven design documents are in [docs/ssd/](docs/ssd/):
-
-| Document | Contents |
-|---|---|
-| [01_ARCHITECTURE.md](docs/ssd/01_ARCHITECTURE.md) | Component diagram, data flows, startup sequence, security model |
-| [02_DATA_MODELS.md](docs/ssd/02_DATA_MODELS.md) | Pydantic models, SQLite schemas, WebSocket packet types |
-| [03_API_REFERENCE.md](docs/ssd/03_API_REFERENCE.md) | Full REST API + WebSocket sync protocol |
-| [04_PROTOCOL_SPEC.md](docs/ssd/04_PROTOCOL_SPEC.md) | Agent wire protocol, AES-GCM encryption, check-in format |
-| [05_AGENT_SPEC.md](docs/ssd/05_AGENT_SPEC.md) | Plugin ABCs, agent lifecycle state machine, command registry |
-| [06_CONFIG_SPEC.md](docs/ssd/06_CONFIG_SPEC.md) | Full config schema, environment variables, runtime constants |
-| [07_IMPLEMENTATION_PLAN.md](docs/ssd/07_IMPLEMENTATION_PLAN.md) | 13-phase build plan with dependencies and exit criteria |
-| [08_TEST_SPEC.md](docs/ssd/08_TEST_SPEC.md) | pytest strategy, fixture hierarchy, test scenarios |
-| [09_DEPLOYMENT_SPEC.md](docs/ssd/09_DEPLOYMENT_SPEC.md) | Docker setup, port map, volume layout, production notes |
+| Field                      | Default   | Description                            |
+| -------------------------- | --------- | -------------------------------------- |
+| `server.host`              | `0.0.0.0` | Bind address                           |
+| `server.port`              | `4321`    | HTTPS + WebSocket port                 |
+| `server.data_dir`          | `./data`  | SQLite database and download storage   |
+| `server.tls_cert`          | —         | TLS certificate path (required)        |
+| `server.tls_key`           | —         | TLS private key path (required)        |
+| `server.access_token_ttl`  | `24`      | Access token lifetime (hours)          |
+| `server.refresh_token_ttl` | `168`     | Refresh token lifetime (hours, 7 days) |
+| `server.auth_rate_limit`   | `10`      | Max auth attempts per IP per minute    |
+| `operators`                | —         | `username: password` map               |
 
 ---
 
@@ -254,11 +236,3 @@ Spec-driven design documents are in [docs/ssd/](docs/ssd/):
 This software is designed for **authorized penetration testing and red team operations only**. Usage against systems without explicit written authorization is illegal. The operators are responsible for ensuring all use complies with applicable laws and engagement rules of engagement.
 
 TLS is required for all API and WebSocket communication. Use properly signed certificates in production environments — do not use self-signed certificates against real targets.
-
----
-
-## Contributing
-
-This project follows spec-driven development. Before implementing any component, read the relevant SSD documents in [docs/ssd/](docs/ssd/) to understand the intended design.
-
-Code style is enforced by `ruff` (line length 100, Python 3.12 target). All PRs must pass lint and maintain ≥70% test coverage.

@@ -66,3 +66,8 @@ Thumbs.db
 # ── Packaging ─────────────────────────────────────────────────────────────────
 # uv.lock IS committed (reproducible installs)
 # pyproject.toml IS committed
+
+.*
+.claude/
+docs/
+CLAUDE.md
