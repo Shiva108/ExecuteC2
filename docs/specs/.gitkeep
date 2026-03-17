@@ -1,0 +1,3 @@
+# This directory is reserved for reference architecture specs (input material).
+# Place source specification documents here before running the SSD generation
+# workflow described in .claude/create-sdd-implementation.md.

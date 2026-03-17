@@ -1,0 +1,68 @@
+# =============================================================================
+# ExecuteC2 — .gitignore
+# =============================================================================
+
+# ── Runtime / sensitive files ─────────────────────────────────────────────────
+# NEVER commit TLS certificates, private keys, or the live config
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+config.yaml          # contains operator passwords; use config.example.yaml
+!config.example.yaml
+
+# ── Data & database ───────────────────────────────────────────────────────────
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+MANIFEST
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# ── Test & coverage artefacts ─────────────────────────────────────────────────
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.tox/
+nosetests.xml
+*.cover
+
+# ── Linters / formatters ──────────────────────────────────────────────────────
+.ruff_cache/
+.mypy_cache/
+
+# ── Editors & OS ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Packaging ─────────────────────────────────────────────────────────────────
+# uv.lock IS committed (reproducible installs)
+# pyproject.toml IS committed

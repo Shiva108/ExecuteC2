@@ -1,0 +1,35 @@
+# ExecuteC2 — example configuration
+# Copy this file to config.yaml and fill in your values.
+# config.yaml is gitignored and must never be committed.
+#
+# Full schema reference: docs/ssd/06_CONFIG_SPEC.md
+
+server:
+  host: "0.0.0.0"       # Bind address (EC2_HOST env var)
+  port: 4321             # HTTPS + WebSocket port (EC2_PORT)
+  data_dir: "./data"     # SQLite DB and download storage (EC2_DATA_DIR)
+  tls_cert: "./cert.pem" # Path to TLS certificate (EC2_TLS_CERT) — required
+  tls_key: "./key.pem"   # Path to TLS private key  (EC2_TLS_KEY) — required
+
+  # Token lifetimes
+  access_token_ttl: 24   # hours
+  refresh_token_ttl: 168 # hours (7 days)
+
+  # Auth rate limiting
+  auth_rate_limit: 10    # max failed attempts per IP per minute
+
+# Operator accounts: username → password
+# Use strong, unique passwords. Do NOT use the example value below.
+operators:
+  admin: "CHANGE_ME"
+
+plugins:
+  listeners:
+    - "executec2.listeners.http_listener"
+  agents:
+    - "executec2.agents.python_agent"
+
+logging:
+  level: "INFO"          # DEBUG | INFO | WARNING | ERROR
+  format: "console"      # console (dev) | json (prod)
+  # file: "/var/log/executec2.log"  # Optional: log to file

@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  teamserver:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: executec2
+    ports:
+      - "${EC2_PORT:-4321}:4321"
+      # Add listener/tunnel ports here when needed, e.g.:
+      # - "8080:8080"   # HTTP listener
+      # - "1080:1080"   # SOCKS5 proxy
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro          # Required: copy from config.example.yaml
+      - ec2-data:/data
+      - ./certs:/app/certs:ro                       # Optional: mount production TLS certs
+    environment:
+      - EC2_DATA_DIR=/data
+      - EC2_LOG_LEVEL=${EC2_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request, ssl; urllib.request.urlopen('https://localhost:4321/api/auth/login', context=ssl.create_default_context())"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 128M
+
+volumes:
+  ec2-data:
+    driver: local
