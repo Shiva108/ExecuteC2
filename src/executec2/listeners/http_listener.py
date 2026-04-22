@@ -2,8 +2,11 @@
 
 import asyncio
 import base64
+import hashlib
 import logging
 import os
+import re
+import ssl
 from typing import TYPE_CHECKING
 
 import msgpack
@@ -21,6 +24,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PAGE_ERROR = "<html><body>404 Not Found</body></html>"
 _DEFAULT_PAGE_PAYLOAD = "<html><body><<<PAYLOAD_DATA>>></body></html>"
 _PAYLOAD_MARKER = b"<<<PAYLOAD_DATA>>>"
+_AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
 def _hkdf_derive(master_key: bytes, salt: bytes, info: bytes) -> bytes:
@@ -35,6 +39,13 @@ def _aes_encrypt(key: bytes, plaintext: bytes) -> bytes:
 
 def _aes_decrypt(key: bytes, data: bytes) -> bytes:
     return AESGCM(key).decrypt(data[:12], data[12:], None)
+
+
+def _compute_cert_fingerprint_sha256(cert_path: str) -> str:
+    with open(cert_path, "rb") as f:
+        pem = f.read().decode("utf-8")
+    der = ssl.PEM_cert_to_DER_cert(pem)
+    return hashlib.sha256(der).hexdigest()
 
 
 class HTTPListener(ListenerPlugin):
@@ -69,6 +80,8 @@ class HTTPListener(ListenerPlugin):
             raise ValueError("callback_addresses must be non-empty")
         config.setdefault("host_bind", "0.0.0.0")
         config.setdefault("ssl", False)
+        config.setdefault("ssl_cert", "")
+        config.setdefault("ssl_key", "")
         config.setdefault("http_method", "POST")
         config.setdefault("user_agents", [])
         config.setdefault("host_headers", [])
@@ -77,6 +90,10 @@ class HTTPListener(ListenerPlugin):
         config.setdefault("trust_x_forwarded_for", False)
         config.setdefault("page_error", _DEFAULT_PAGE_ERROR)
         config.setdefault("page_payload", _DEFAULT_PAGE_PAYLOAD)
+        if config["ssl"]:
+            if not config.get("ssl_cert") or not config.get("ssl_key"):
+                raise ValueError("ssl_cert and ssl_key are required when ssl=true")
+            config["tls_fingerprint_sha256"] = _compute_cert_fingerprint_sha256(config["ssl_cert"])
         return config
 
     async def start(self, config: dict, teamserver: "TeamserverInterface") -> None:
@@ -88,8 +105,13 @@ class HTTPListener(ListenerPlugin):
 
         host = self.config["host_bind"]
         port = self.config["port_bind"]
+        ssl_ctx = None
+        if self.config["ssl"]:
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(self.config["ssl_cert"], self.config["ssl_key"])
+
         self.server = await asyncio.start_server(
-            self._handle_connection, host, port
+            self._handle_connection, host, port, ssl=ssl_ctx
         )
         logger.info("HTTP listener started on %s:%d", host, port)
 
@@ -168,11 +190,21 @@ class HTTPListener(ListenerPlugin):
 
             # Beat header: [4-byte type length][type name][8-byte agent_id ASCII][beat_data]
             try:
+                if len(beat_raw) < 13:
+                    return self._error_response()
                 type_len = int.from_bytes(beat_raw[:4], "big")
-                agent_type = beat_raw[4:4 + type_len].decode()
-                agent_id = beat_raw[4 + type_len:4 + type_len + 8].decode()
+                if type_len < 1 or type_len > 64:
+                    return self._error_response()
+                if len(beat_raw) < 4 + type_len + 8:
+                    return self._error_response()
+                agent_type = beat_raw[4:4 + type_len].decode("utf-8", errors="strict")
+                agent_id = beat_raw[4 + type_len:4 + type_len + 8].decode("utf-8", errors="strict")
+                if _AGENT_ID_RE.fullmatch(agent_id) is None:
+                    return self._error_response()
                 beat_data_raw = beat_raw[4 + type_len + 8:]
-                beat_data = msgpack.unpackb(beat_data_raw)
+                beat_data = msgpack.unpackb(beat_data_raw, raw=False)
+                if not isinstance(beat_data, dict):
+                    return self._error_response()
             except Exception:
                 return self._error_response()
 
@@ -184,7 +216,7 @@ class HTTPListener(ListenerPlugin):
 
             # Route to teamserver
             if not self.paused:
-                await self.teamserver.agent_checkin(
+                accepted = await self.teamserver.agent_checkin(
                     agent_id=agent_id,
                     agent_type=agent_type,
                     beat_data=beat_data,
@@ -193,7 +225,7 @@ class HTTPListener(ListenerPlugin):
                 )
 
                 # Get pending tasks
-                task_bytes_list = await self.teamserver.agent_get_pending_tasks(agent_id)
+                task_bytes_list = await self.teamserver.agent_get_pending_tasks(agent_id) if accepted else []
             else:
                 task_bytes_list = []
 

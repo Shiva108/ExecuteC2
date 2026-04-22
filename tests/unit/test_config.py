@@ -8,11 +8,14 @@ from executec2.config.schema import ExecuteC2Config, LoggingConfig, PluginConfig
 
 def test_server_config_defaults():
     cfg = ServerConfig(tls_cert=Path("/tmp/cert.pem"), tls_key=Path("/tmp/key.pem"))
+    assert cfg.admin_bind_host == "127.0.0.1"
     assert cfg.host == "0.0.0.0"
     assert cfg.port == 4321
     assert cfg.access_token_ttl == 24
     assert cfg.refresh_token_ttl == 168
     assert cfg.auth_rate_limit == 10
+    assert cfg.max_task_payload_bytes == 8 * 1024 * 1024
+    assert cfg.operator_ui_origins == []
 
 
 def test_server_config_port_bounds():
@@ -60,10 +63,27 @@ def test_full_config_from_yaml(tmp_path):
     config = ExecuteC2Config.model_validate(raw)
     assert config.server.host == "127.0.0.1"
     assert config.server.port == 4321
-    assert config.operators == {"admin": "secret"}
+    assert config.operators["admin"].password == "secret"
+    assert config.operators["admin"].roles == ["admin"]
     assert "executec2.listeners.http_listener" in config.plugins.listeners
     assert config.logging.level == "DEBUG"
     assert data_dir.exists()
+
+
+def test_structured_operator_config():
+    cert = Path("/tmp/cert.pem")
+    key = Path("/tmp/key.pem")
+    config = ExecuteC2Config.model_validate({
+        "server": {
+            "tls_cert": str(cert),
+            "tls_key": str(key),
+        },
+        "operators": {
+            "alice": {"password": "p@ss", "roles": ["viewer"]},
+        },
+    })
+    assert config.operators["alice"].password == "p@ss"
+    assert config.operators["alice"].roles == ["viewer"]
 
 
 def test_config_missing_tls_fails():

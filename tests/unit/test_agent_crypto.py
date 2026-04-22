@@ -127,3 +127,18 @@ def test_connector_backoff_increases():
     conn._fail_count = 5
     b5 = conn._backoff()
     assert b5 > b0
+
+
+@pytest.mark.asyncio
+async def test_connector_ssl_verify_requires_fingerprint():
+    from agent.connector_http import HTTPConnector
+
+    conn = HTTPConnector({
+        "callback_addresses": ["127.0.0.1:8080"],
+        "uris": ["/check"],
+        "beat_header": "X-Beat",
+        "ssl": True,
+        "verify_ssl": True,
+    })
+    result = await conn.check_in("abc")
+    assert result is None

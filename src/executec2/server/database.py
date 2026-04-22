@@ -8,6 +8,7 @@ from typing import Any
 
 import aiosqlite
 
+from executec2.server import secrets as secretlib
 from executec2.server.models import (
     AgentData,
     AgentMark,
@@ -64,7 +65,13 @@ CREATE TABLE IF NOT EXISTS agents (
     mark         TEXT NOT NULL DEFAULT '',
     color        TEXT NOT NULL DEFAULT '',
     target_id    TEXT NOT NULL DEFAULT '',
-    custom_data  BLOB NOT NULL DEFAULT x''
+    custom_data  BLOB NOT NULL DEFAULT x'',
+    last_counter INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -168,11 +175,12 @@ def _dt(ts: int) -> datetime:
 
 
 class Database:
-    def __init__(self, conn: aiosqlite.Connection):
+    def __init__(self, conn: aiosqlite.Connection, secret_context=None):
         self._conn = conn
+        self._secret_context = secret_context
 
     @classmethod
-    async def create(cls, db_path: str | Path) -> "Database":
+    async def create(cls, db_path: str | Path, secret_context=None) -> "Database":
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
@@ -181,16 +189,120 @@ class Database:
         await conn.execute("PRAGMA cache_size=-64000")
         await conn.execute("PRAGMA foreign_keys=ON")
         await conn.commit()
-        db = cls(conn)
+        db = cls(conn, secret_context=secret_context)
         await db.migrate()
         return db
 
     async def migrate(self) -> None:
         await self._conn.executescript(_SCHEMA)
+        await self._ensure_column("agents", "last_counter", "INTEGER NOT NULL DEFAULT 0")
+        await self._conn.commit()
+
+    async def _ensure_column(self, table: str, column: str, ddl_fragment: str) -> None:
+        async with self._conn.execute(f"PRAGMA table_info({table})") as cur:
+            rows = await cur.fetchall()
+        if any(r["name"] == column for r in rows):
+            return
+        await self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_fragment}")
+
+    async def migrate_secrets(self) -> None:
+        if self._secret_context is None:
+            return
+
+        await self._conn.execute(
+            "INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('secrets_migrated', '0')"
+        )
+        await self._conn.commit()
+
+        async with self._conn.execute(
+            "SELECT value FROM schema_meta WHERE key = 'secrets_migrated'"
+        ) as cur:
+            row = await cur.fetchone()
+        if row and row["value"] == "1":
+            return
+
+        async with self._conn.execute("SELECT id, session_key FROM agents") as cur:
+            agents = await cur.fetchall()
+        for row in agents:
+            raw = bytes(row["session_key"])
+            if secretlib.is_envelope(raw):
+                continue
+            wrapped = secretlib.encrypt_envelope(self._secret_context.session_wrap_key, raw)
+            await self._conn.execute(
+                "UPDATE agents SET session_key = ? WHERE id = ?",
+                (wrapped, row["id"]),
+            )
+
+        async with self._conn.execute("SELECT cred_id, secret FROM credentials") as cur:
+            creds = await cur.fetchall()
+        for row in creds:
+            blob = bytes(row["secret"])
+            if not blob:
+                continue
+            if secretlib.is_envelope(blob):
+                continue
+            plaintext: bytes | None = None
+            try:
+                plaintext = secretlib.decrypt_legacy_aesgcm(
+                    self._secret_context.legacy_credential_key,
+                    blob,
+                )
+            except Exception:
+                plaintext = None
+            if plaintext is None:
+                # Preserve unreadable legacy rows as-is.
+                continue
+            wrapped = secretlib.encrypt_envelope(self._secret_context.credential_key, plaintext)
+            await self._conn.execute(
+                "UPDATE credentials SET secret = ? WHERE cred_id = ?",
+                (wrapped, row["cred_id"]),
+            )
+
+        await self._conn.execute(
+            "UPDATE schema_meta SET value = '1' WHERE key = 'secrets_migrated'"
+        )
         await self._conn.commit()
 
     async def close(self) -> None:
         await self._conn.close()
+
+    def _encrypt_session_key(self, raw: bytes) -> bytes:
+        if self._secret_context is None:
+            return raw
+        return secretlib.encrypt_envelope(self._secret_context.session_wrap_key, raw)
+
+    def _decrypt_session_key(self, blob: bytes) -> bytes:
+        if self._secret_context is None:
+            return blob
+        if secretlib.is_envelope(blob):
+            return secretlib.decrypt_envelope(self._secret_context.session_wrap_key, blob)
+        return blob
+
+    def _encrypt_credential_secret(self, plaintext: str) -> bytes:
+        if not plaintext:
+            return b""
+        data = plaintext.encode("utf-8")
+        if self._secret_context is None:
+            return data
+        return secretlib.encrypt_envelope(self._secret_context.credential_key, data)
+
+    def _decrypt_credential_secret(self, blob: bytes) -> str:
+        if not blob:
+            return ""
+        if self._secret_context is None:
+            return blob.decode("utf-8", errors="replace")
+        try:
+            if secretlib.is_envelope(blob):
+                return secretlib.decrypt_envelope(
+                    self._secret_context.credential_key,
+                    blob,
+                ).decode("utf-8", errors="replace")
+            return secretlib.decrypt_legacy_aesgcm(
+                self._secret_context.legacy_credential_key,
+                blob,
+            ).decode("utf-8", errors="replace")
+        except Exception:
+            return ""
 
     # -----------------------------------------------------------------------
     # Listener CRUD
@@ -272,17 +384,17 @@ class Database:
             "INSERT INTO agents (id, name, session_key, listener, external_ip, internal_ip,"
             " gmt_offset, sleep, jitter, pid, tid, arch, elevated, process, os, os_desc,"
             " domain, computer, username, create_time, last_tick, kill_date, tags, mark,"
-            " color, target_id, custom_data)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " color, target_id, custom_data, last_counter)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                data.id, data.name, data.session_key, data.listener,
+                data.id, data.name, self._encrypt_session_key(data.session_key), data.listener,
                 data.external_ip, data.internal_ip, data.gmt_offset,
                 data.sleep, data.jitter, data.pid, data.tid, data.arch,
                 int(data.elevated), data.process, int(data.os),
                 data.os_desc, data.domain, data.computer, data.username,
                 _ts(data.create_time), _ts(data.last_tick),
                 data.kill_date, data.tags, data.mark.value,
-                data.color, data.target_id, data.custom_data,
+                data.color, data.target_id, data.custom_data, data.last_counter,
             ),
         )
         await self._conn.commit()
@@ -291,7 +403,7 @@ class Database:
         return AgentData(
             id=row["id"],
             name=row["name"],
-            session_key=bytes(row["session_key"]),
+            session_key=self._decrypt_session_key(bytes(row["session_key"])),
             listener=row["listener"],
             external_ip=row["external_ip"],
             internal_ip=row["internal_ip"],
@@ -316,6 +428,7 @@ class Database:
             color=row["color"],
             target_id=row["target_id"],
             custom_data=bytes(row["custom_data"]),
+            last_counter=row["last_counter"],
         )
 
     async def agent_get(self, agent_id: str) -> AgentData | None:
@@ -339,6 +452,8 @@ class Database:
             col = _col_map.get(k, k)
             if col == "last_tick" and isinstance(v, datetime):
                 v = _ts(v)
+            elif col == "session_key":
+                v = self._encrypt_session_key(v)
             elif hasattr(v, "value"):
                 v = v.value
             sets.append(f"{col} = ?")
@@ -507,24 +622,24 @@ class Database:
     # Credential CRUD
     # -----------------------------------------------------------------------
 
-    async def credential_insert(self, data: CredentialData, secret_blob: bytes = b"") -> None:
+    async def credential_insert(self, data: CredentialData) -> None:
         await self._conn.execute(
             "INSERT INTO credentials (cred_id, username, secret, realm, cred_type,"
             " tag, date, source, agent_id, host)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
-                data.cred_id, data.username, secret_blob, data.realm,
+                data.cred_id, data.username, self._encrypt_credential_secret(data.secret), data.realm,
                 data.cred_type.value, data.tag, _ts(data.date),
                 data.source, data.agent_id, data.host,
             ),
         )
         await self._conn.commit()
 
-    def _row_to_credential(self, row: aiosqlite.Row) -> tuple[CredentialData, bytes]:
+    def _row_to_credential(self, row: aiosqlite.Row) -> CredentialData:
         data = CredentialData(
             cred_id=row["cred_id"],
             username=row["username"],
-            secret="",  # caller decrypts from secret_blob
+            secret=self._decrypt_credential_secret(bytes(row["secret"])),
             realm=row["realm"],
             cred_type=CredentialType(row["cred_type"]),
             tag=row["tag"],
@@ -533,16 +648,16 @@ class Database:
             agent_id=row["agent_id"],
             host=row["host"],
         )
-        return data, bytes(row["secret"])
+        return data
 
-    async def credential_get(self, cred_id: str) -> tuple[CredentialData, bytes] | None:
+    async def credential_get(self, cred_id: str) -> CredentialData | None:
         async with self._conn.execute(
             "SELECT * FROM credentials WHERE cred_id = ?", (cred_id,)
         ) as cur:
             row = await cur.fetchone()
         return self._row_to_credential(row) if row else None
 
-    async def credential_list(self) -> list[tuple[CredentialData, bytes]]:
+    async def credential_list(self) -> list[CredentialData]:
         async with self._conn.execute("SELECT * FROM credentials ORDER BY date") as cur:
             rows = await cur.fetchall()
         return [self._row_to_credential(r) for r in rows]
@@ -552,6 +667,8 @@ class Database:
         for k, v in fields.items():
             if hasattr(v, "value"):
                 v = v.value
+            if k == "secret":
+                v = self._encrypt_credential_secret(str(v))
             sets.append(f"{k} = ?")
             vals.append(v)
         vals.append(cred_id)

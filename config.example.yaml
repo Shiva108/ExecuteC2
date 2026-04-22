@@ -5,11 +5,15 @@
 # Full schema reference: docs/ssd/06_CONFIG_SPEC.md
 
 server:
-  host: "0.0.0.0"       # Bind address (EC2_HOST env var)
+  # Deprecated alias; kept for backward compatibility.
+  host: "0.0.0.0"
+  admin_bind_host: "127.0.0.1"  # Management API bind address (EC2_HOST)
   port: 4321             # HTTPS + WebSocket port (EC2_PORT)
   data_dir: "./data"     # SQLite DB and download storage (EC2_DATA_DIR)
   tls_cert: "./cert.pem" # Path to TLS certificate (EC2_TLS_CERT) — required
   tls_key: "./key.pem"   # Path to TLS private key  (EC2_TLS_KEY) — required
+  operator_ui_origins: [] # Optional strict CORS allowlist
+  max_task_payload_bytes: 8388608 # 8 MiB task payload cap
 
   # Token lifetimes
   access_token_ttl: 24   # hours
@@ -21,7 +25,9 @@ server:
 # Operator accounts: username → password
 # Use strong, unique passwords. Do NOT use the example value below.
 operators:
-  admin: "CHANGE_ME"
+  admin:
+    password: "CHANGE_ME"
+    roles: ["admin"]
 
 plugins:
   listeners:

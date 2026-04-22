@@ -162,6 +162,7 @@ class AgentData(BaseModel):
     color: str = Field(default="", description="Hex color code for UI")
     target_id: str = Field(default="")
     custom_data: bytes = Field(default=b"")
+    last_counter: int = Field(default=0, ge=0)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -276,7 +277,10 @@ class OTPEntry(BaseModel):
 
 
 class TokenClaims(BaseModel):
+    sub: str
     username: str
+    roles: list[str] = Field(default_factory=list)
+    jti: str = Field(default="")
     exp: datetime
     iat: datetime
     token_type: str = Field(description="'access' or 'refresh'")

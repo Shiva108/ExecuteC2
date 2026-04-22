@@ -109,6 +109,38 @@ def test_validate_config_bad_key_hex():
         })
 
 
+def test_validate_config_ssl_requires_cert_and_key():
+    listener = HTTPListener()
+    with pytest.raises(ValueError, match="ssl_cert and ssl_key are required"):
+        listener.validate_config({
+            "port_bind": 8080,
+            "callback_addresses": ["127.0.0.1"],
+            "encrypt_key": "a" * 64,
+            "uris": ["/x"],
+            "beat_header": "X-Beat",
+            "ssl": True,
+        })
+
+
+def test_validate_config_ssl_sets_fingerprint(monkeypatch):
+    listener = HTTPListener()
+    monkeypatch.setattr(
+        "executec2.listeners.http_listener._compute_cert_fingerprint_sha256",
+        lambda _path: "deadbeef",
+    )
+    cfg = listener.validate_config({
+        "port_bind": 8080,
+        "callback_addresses": ["127.0.0.1"],
+        "encrypt_key": "a" * 64,
+        "uris": ["/x"],
+        "beat_header": "X-Beat",
+        "ssl": True,
+        "ssl_cert": "/tmp/cert.pem",
+        "ssl_key": "/tmp/key.pem",
+    })
+    assert cfg["tls_fingerprint_sha256"] == "deadbeef"
+
+
 # ---------------------------------------------------------------------------
 # Crypto helpers
 # ---------------------------------------------------------------------------
@@ -248,6 +280,39 @@ async def test_process_bad_beat_header(listener_config):
     raw = make_raw_http_request("/check", "x-beat", "not-valid-base64!@#$")
     response = await listener._process_http_request(raw)
     assert b"404" in response
+
+
+async def test_process_invalid_agent_id_fails_closed(listener_config):
+    cfg, key = listener_config
+    listener = HTTPListener()
+    listener.config = cfg
+    listener.teamserver = make_teamserver_mock()
+    listener._master_key = key
+    listener._beat_key = _hkdf_derive(key, b"beat", b"beat-encryption")
+
+    beat_header_val = make_beat_header(key, "python", "ZZZZZZZZ", {"hostname": "box"})
+    raw = make_raw_http_request("/check", "x-beat", beat_header_val)
+    response = await listener._process_http_request(raw)
+
+    assert b"404" in response
+    listener.teamserver.agent_checkin.assert_not_called()
+
+
+async def test_process_rejected_checkin_does_not_dequeue_tasks(listener_config):
+    cfg, key = listener_config
+    listener = HTTPListener()
+    listener.config = cfg
+    listener.teamserver = make_teamserver_mock()
+    listener.teamserver.agent_checkin.return_value = False
+    listener._master_key = key
+    listener._beat_key = _hkdf_derive(key, b"beat", b"beat-encryption")
+
+    beat_header_val = make_beat_header(key, "python", "abcd1234", {"hostname": "box"})
+    raw = make_raw_http_request("/check", "x-beat", beat_header_val)
+    response = await listener._process_http_request(raw)
+
+    assert b"HTTP/1.1 200" in response
+    listener.teamserver.agent_get_pending_tasks.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

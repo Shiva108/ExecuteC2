@@ -64,7 +64,7 @@ async def test_wal_mode(db):
 
 async def test_all_tables_created(db):
     tables = await db.table_names()
-    expected = {"agents", "tasks", "listeners", "credentials", "targets", "downloads", "chat", "consoles"}
+    expected = {"agents", "tasks", "listeners", "credentials", "targets", "downloads", "chat", "consoles", "schema_meta"}
     assert expected.issubset(set(tables))
 
 
@@ -128,6 +128,7 @@ async def test_agent_insert_and_get(db):
     assert result.session_key == agent.session_key
     assert result.os == OSType.LINUX
     assert result.mark == AgentMark.ACTIVE
+    assert result.last_counter == 0
 
 
 async def test_agent_list(db):
@@ -230,24 +231,23 @@ async def test_credential_insert_and_get(db):
         realm="CORP",
         cred_type=CredentialType.PASSWORD,
     )
-    secret_blob = b"encrypted-blob"
-    await db.credential_insert(cred, secret_blob)
-    result, blob = await db.credential_get(cred.cred_id)
+    await db.credential_insert(cred)
+    result = await db.credential_get(cred.cred_id)
     assert result.username == "administrator"
-    assert blob == secret_blob
+    assert result.secret == "plaintext-secret"
 
 
 async def test_credential_list(db):
     for i in range(3):
         cred = CredentialData(cred_id=uuid.uuid4().hex, username=f"user{i}")
-        await db.credential_insert(cred, b"blob")
+        await db.credential_insert(cred)
     items = await db.credential_list()
     assert len(items) == 3
 
 
 async def test_credential_delete(db):
     cred = CredentialData(cred_id=uuid.uuid4().hex, username="test")
-    await db.credential_insert(cred, b"blob")
+    await db.credential_insert(cred)
     await db.credential_delete(cred.cred_id)
     assert await db.credential_get(cred.cred_id) is None
 

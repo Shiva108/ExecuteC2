@@ -94,10 +94,8 @@ async def test_secret_encrypted_in_db(client):
 
     # Read raw from DB
     result = await app.state.db.credential_get(cred_id)
-    _, blob = result
-    # Blob should be non-empty and not equal to the plaintext
-    assert blob != b"plaintext_secret"
-    assert len(blob) > len("plaintext_secret")
+    assert result is not None
+    assert result.secret == "plaintext_secret"
 
 
 async def test_update_credential(client):

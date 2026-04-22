@@ -83,11 +83,16 @@ class Agent:
         self._connector = HTTPConnector(config)
         self._running = False
         self._registered = False
+        self._counter = 1
 
     def _build_beat_header(self, beat_type: str, beat_data: dict) -> str:
         """Encode and encrypt the beat header."""
         if self._crypto is None:
             self._crypto = AgentCrypto(self.master_key_hex, self.agent_id)
+
+        beat_data = dict(beat_data)
+        beat_data["ctr"] = self._counter
+        self._counter += 1
 
         agent_type_bytes = _AGENT_TYPE.encode()
         agent_id_bytes = self.agent_id.encode()

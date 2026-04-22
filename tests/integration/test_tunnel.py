@@ -1,6 +1,7 @@
 """Integration tests for tunnel API — Phase 11."""
 
 import secrets
+import socket
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -8,6 +9,12 @@ from httpx import ASGITransport, AsyncClient
 from executec2.config.schema import ExecuteC2Config, ServerConfig
 from executec2.server.app import create_app, init_app_state, teardown_app_state
 from executec2.server.models import AgentData, OSType
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def make_config(tmp_path):
@@ -100,9 +107,10 @@ async def test_create_socks5_tunnel_persisted(auth_client):
     """Creating a SOCKS5 tunnel persists it to DB and broadcasts the event."""
     client, state = auth_client
     agent_id = await _insert_agent(state)
+    lport = _free_port()
     resp = await client.post("/api/tunnels/socks5", json={
         "agent_id": agent_id,
-        "lport": 1080,
+        "lport": lport,
     })
     assert resp.status_code == 201
     tunnels = await state.db.tunnel_list()
@@ -124,9 +132,10 @@ async def test_create_lportfwd_tunnel_persisted(auth_client):
     """Creating a local port-forward persists it to DB."""
     client, state = auth_client
     agent_id = await _insert_agent(state)
+    lport = _free_port()
     resp = await client.post("/api/tunnels/lportfwd", json={
         "agent_id": agent_id,
-        "lport": 9000,
+        "lport": lport,
         "thost": "10.0.0.1",
         "tport": 22,
     })

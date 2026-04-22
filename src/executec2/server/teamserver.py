@@ -38,7 +38,7 @@ class TeamserverInterface(Protocol):
         beat_data: dict,
         external_ip: str,
         listener_name: str,
-    ) -> None: ...
+    ) -> bool: ...
 
     async def agent_get_pending_tasks(self, agent_id: str) -> list[bytes]: ...
 
@@ -84,21 +84,42 @@ class TeamserverCore:
         beat_data: dict,
         external_ip: str,
         listener_name: str,
-    ) -> None:
+    ) -> bool:
         """Handle an agent check-in (new registration or recurring tick)."""
         plugin = self._agent_plugins.get(agent_type)
         if plugin is None:
             logger.warning("Unknown agent type: %s", agent_type)
-            return
+            return False
+
+        counter = int(beat_data.get("ctr", 0))
+        if counter <= 0:
+            logger.warning("Rejected beat with invalid counter from %s", agent_id)
+            return False
 
         if agent_id in self._agents:
             # Known agent — update last_tick
             agent = self._agents[agent_id]
+            if counter <= agent.data.last_counter:
+                logger.warning(
+                    "Rejected replayed beat from %s (ctr=%d <= %d)",
+                    agent_id,
+                    counter,
+                    agent.data.last_counter,
+                )
+                return False
+
+            agent.data.last_counter = counter
             agent.data.last_tick = datetime.now(UTC)
             if not agent.active:
                 agent.active = True
                 agent.data.mark = AgentMark.ACTIVE
-            await self._db.agent_update(agent_id, last_tick=agent.data.last_tick, mark=str(agent.data.mark))
+            await self._db.agent_update(
+                agent_id,
+                last_tick=agent.data.last_tick,
+                mark=str(agent.data.mark),
+                last_counter=counter,
+            )
+            return True
         else:
             # New agent — parse beat and register
             fields = plugin.parse_beat(beat_data)
@@ -114,6 +135,7 @@ class TeamserverCore:
                 listener=listener_name,
                 external_ip=external_ip,
                 **{k: v for k, v in fields.items() if k in AgentData.model_fields and k not in _explicit},
+                last_counter=counter,
             )
             agent = Agent(data=agent_data)
             self._agents[agent_id] = agent
@@ -129,6 +151,7 @@ class TeamserverCore:
             await self._broker.broadcast(msg)
             await self._events.emit_async("agent.new", {"agent_id": agent_id})
             logger.info("New agent registered: %s (%s)", agent_id, agent_type)
+            return True
 
     async def agent_get_pending_tasks(self, agent_id: str) -> list[bytes]:
         """Drain the pending task queue for an agent and return task bytes."""

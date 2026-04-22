@@ -3,22 +3,24 @@
 import msgpack
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from executec2.server.auth import ROLE_ADMIN, ROLE_OPERATOR, require_roles
 from executec2.server.broker import MessageBroker
 from executec2.server.models import (
     BrokerMessage,
     BrokerMsgType,
     SyncPacketType,
+    TokenClaims,
 )
 
 router = APIRouter(prefix="/api", tags=["tasks"])
 
-
-def get_current_user(request: Request):
-    return request.app.state.get_current_user(request)
-
-
 @router.post("/agents/{agent_id}/tasks/{task_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
-async def cancel_task(agent_id: str, task_id: str, request: Request, _=Depends(get_current_user)):
+async def cancel_task(
+    agent_id: str,
+    task_id: str,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     """Cancel a pending task (remove from agent queue if not yet delivered)."""
     db = request.app.state.db
     task = await db.task_get(task_id)
@@ -64,7 +66,12 @@ async def cancel_task(agent_id: str, task_id: str, request: Request, _=Depends(g
 
 
 @router.delete("/agents/{agent_id}/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_task(agent_id: str, task_id: str, request: Request, _=Depends(get_current_user)):
+async def delete_task(
+    agent_id: str,
+    task_id: str,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     """Permanently delete a task record."""
     db = request.app.state.db
     task = await db.task_get(task_id)

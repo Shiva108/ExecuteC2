@@ -1,8 +1,10 @@
 """HTTP connector for the Python agent."""
 
 import base64
+import hashlib
 import logging
 import random
+import ssl
 
 import aiohttp
 
@@ -23,6 +25,8 @@ class HTTPConnector:
         self.user_agent: str = config.get("user_agent", "Mozilla/5.0")
         self.extra_headers: dict = config.get("request_headers", {})
         self.ssl: bool = config.get("ssl", False)
+        self.verify_ssl: bool = bool(config.get("verify_ssl", False))
+        self.tls_fingerprint_sha256: str = str(config.get("tls_fingerprint_sha256", "")).lower()
         self._addr_index: int = 0
         self._fail_count: int = 0
 
@@ -49,12 +53,33 @@ class HTTPConnector:
             self.beat_header: beat_header_value,
             **self.extra_headers,
         }
-        connector = aiohttp.TCPConnector(ssl=False)
+        connector_ssl = False
+        if self.ssl:
+            if self.verify_ssl and not self.tls_fingerprint_sha256:
+                logger.debug("Missing tls_fingerprint_sha256 while verify_ssl=true")
+                self._fail_count += 1
+                return None
+            connector_ssl = ssl.create_default_context() if self.verify_ssl else False
+
+        connector = aiohttp.TCPConnector(ssl=connector_ssl)
         try:
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.request(
                     self.http_method, url, data=body, headers=headers, timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
+                    if self.ssl and self.verify_ssl:
+                        ssl_obj = resp.connection.transport.get_extra_info("ssl_object")
+                        cert_der = ssl_obj.getpeercert(binary_form=True) if ssl_obj else None
+                        if not cert_der:
+                            logger.debug("TLS peer certificate unavailable")
+                            self._fail_count += 1
+                            return None
+                        cert_fp = hashlib.sha256(cert_der).hexdigest()
+                        if cert_fp.lower() != self.tls_fingerprint_sha256:
+                            logger.debug("TLS fingerprint mismatch")
+                            self._fail_count += 1
+                            return None
+
                     if resp.status == 200:
                         self._fail_count = 0
                         return await resp.read()

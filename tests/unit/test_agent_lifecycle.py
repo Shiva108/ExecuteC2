@@ -144,7 +144,7 @@ async def test_agent_checkin_new(teamserver_fixture):
     beat = {
         "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
         "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
-        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0,
+        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0, "ctr": 1,
     }
     await core.agent_checkin("aabbccdd", "python", beat, "192.168.1.1", "test-listener")
 
@@ -158,8 +158,9 @@ async def test_agent_checkin_updates_tick(teamserver_fixture):
     beat = {
         "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
         "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
-        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0,
+        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0, "ctr": 1,
     }
+    beat["ctr"] = 2
     await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
     first_tick = agents["aabbccdd"].data.last_tick
 
@@ -182,7 +183,7 @@ async def test_get_pending_tasks_empty(teamserver_fixture):
     beat = {
         "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
         "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
-        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0,
+        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0, "ctr": 1,
     }
     await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
     tasks = await core.agent_get_pending_tasks("aabbccdd")
@@ -200,7 +201,7 @@ async def test_get_session_key(teamserver_fixture):
     beat = {
         "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
         "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
-        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0,
+        "process": "python3", "elevated": False, "sleep": 5, "jitter": 0, "ctr": 1,
     }
     await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
     key = await core.get_session_key("aabbccdd")
@@ -219,7 +220,7 @@ async def test_agent_marked_inactive_after_threshold(teamserver_fixture):
     beat = {
         "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
         "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
-        "process": "python3", "elevated": False, "sleep": 1, "jitter": 0,
+        "process": "python3", "elevated": False, "sleep": 1, "jitter": 0, "ctr": 1,
     }
     await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
 
@@ -238,8 +239,9 @@ async def test_agent_reactivated_on_checkin(teamserver_fixture):
     beat = {
         "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
         "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
-        "process": "python3", "elevated": False, "sleep": 1, "jitter": 0,
+        "process": "python3", "elevated": False, "sleep": 1, "jitter": 0, "ctr": 1,
     }
+    beat["ctr"] = 2
     await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
 
     # Force inactive
@@ -247,6 +249,23 @@ async def test_agent_reactivated_on_checkin(teamserver_fixture):
     agents["aabbccdd"].active = False
 
     # Check-in again — should reactivate
+    beat["ctr"] = 3
     await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
     assert agents["aabbccdd"].data.mark == AgentMark.ACTIVE
     assert agents["aabbccdd"].active is True
+
+
+async def test_agent_replay_counter_rejected(teamserver_fixture):
+    core, agents = teamserver_fixture
+    beat = {
+        "hostname": "BOX", "username": "user", "domain": "", "internal_ip": "10.0.0.1",
+        "os": 2, "os_desc": "Linux", "arch": "x64", "pid": 100,
+        "process": "python3", "elevated": False, "sleep": 1, "jitter": 0, "ctr": 1,
+    }
+    accepted = await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
+    assert accepted is True
+
+    # Replay same counter must be rejected and last_counter unchanged.
+    accepted = await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
+    assert accepted is False
+    assert agents["aabbccdd"].data.last_counter == 1

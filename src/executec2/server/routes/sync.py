@@ -15,19 +15,15 @@ from fastapi import (
 )
 from pydantic import BaseModel
 
+from executec2.server.auth import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from executec2.server.broker import MessageBroker, encode_packet
-from executec2.server.models import ClientHandler, OTPType, SyncPacketType
+from executec2.server.models import ClientHandler, OTPType, SyncPacketType, TokenClaims
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 DEFAULT_SYNC_CATEGORIES = ["listeners", "agents"]
-
-
-def get_current_user(request: Request) -> str:
-    return request.app.state.get_current_user(request)
-
 
 async def _get_db_snapshot(db, categories: list[str]) -> dict:
     """Build snapshot dict of current DB state per category."""
@@ -46,8 +42,8 @@ async def _get_db_snapshot(db, categories: list[str]) -> dict:
                 tasks.extend(await db.task_list(agent.id))
             snapshot[cat] = [t.model_dump(mode="json") for t in tasks]
         elif cat == "credentials":
-            rows = await db.credential_list()
-            snapshot[cat] = [cred.model_dump(mode="json") for cred, _ in rows]
+            items = await db.credential_list()
+            snapshot[cat] = [cred.model_dump(mode="json") for cred in items]
         elif cat == "targets":
             items = await db.target_list()
             snapshot[cat] = [i.model_dump(mode="json") for i in items]
@@ -143,12 +139,16 @@ class SubscribeRequest(BaseModel):
 
 
 @router.post("/subscribe", status_code=status.HTTP_204_NO_CONTENT)
-async def subscribe(body: SubscribeRequest, request: Request, user: str = Depends(get_current_user)):
+async def subscribe(
+    body: SubscribeRequest,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
     """Add categories to the operator's WebSocket subscription."""
     broker: MessageBroker = request.app.state.broker
     db = request.app.state.db
 
-    client = next((c for c in broker._clients if c.username == user), None)
+    client = next((c for c in broker._clients if c.username == claims.username), None)
     if client is None:
         raise HTTPException(status_code=404, detail="No active WebSocket connection")
 
@@ -162,4 +162,4 @@ async def subscribe(body: SubscribeRequest, request: Request, user: str = Depend
                 try:
                     client.send_queue.put_nowait(frame)
                 except asyncio.QueueFull:
-                    logger.warning("Client %s queue full during subscribe", user)
+                    logger.warning("Client %s queue full during subscribe", claims.username)

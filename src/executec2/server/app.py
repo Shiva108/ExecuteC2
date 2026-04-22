@@ -1,12 +1,13 @@
 """FastAPI application factory for ExecuteC2."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import jwt as pyjwt
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from executec2.config.schema import ExecuteC2Config
@@ -14,6 +15,7 @@ from executec2.server.auth import JWTManager, OTPStore, RateLimiter
 from executec2.server.broker import MessageBroker
 from executec2.server.database import Database
 from executec2.server.events import EventManager
+from executec2.server.secrets import SecretContext
 from executec2.server.teamserver import TeamserverCore
 
 logger = logging.getLogger(__name__)
@@ -21,18 +23,43 @@ logger = logging.getLogger(__name__)
 
 async def init_app_state(app: FastAPI, config: ExecuteC2Config) -> None:
     """Initialize application state. Called by lifespan and directly in tests."""
+    master_secret = os.environ.get("EC2_MASTER_SECRET")
+    if not master_secret:
+        raise RuntimeError("EC2_MASTER_SECRET is required")
+
+    app.state.secret_context = SecretContext.from_master_secret(master_secret)
+
     data_dir = Path(config.server.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     db_path = data_dir / "executec2.db"
 
-    app.state.db = await Database.create(db_path)
+    app.state.db = await Database.create(
+        db_path,
+        secret_context=app.state.secret_context,
+    )
+    await app.state.db.migrate_secrets()
     app.state.jwt_manager = JWTManager(
+        secret=app.state.secret_context.jwt_signing_key,
         access_ttl_hours=config.server.access_token_ttl,
         refresh_ttl_hours=config.server.refresh_token_ttl,
     )
     app.state.otp_store = OTPStore()
     app.state.rate_limiter = RateLimiter(max_requests=config.server.auth_rate_limit)
-    app.state.operators = config.operators
+    app.state.route_limiters = {
+        "otp": RateLimiter(max_requests=30),
+        "command": RateLimiter(max_requests=120),
+        "raw_command": RateLimiter(max_requests=10),
+        "listener_mutation": RateLimiter(max_requests=10),
+        "tunnel_mutation": RateLimiter(max_requests=10),
+    }
+    app.state.max_task_payload_bytes = config.server.max_task_payload_bytes
+    app.state.operators = {
+        username: {
+            "password": op.password,
+            "roles": list(op.roles) if op.roles else ["operator"],
+        }
+        for username, op in config.operators.items()
+    }
     app.state.event_manager = EventManager()
     await app.state.event_manager.start()
     broker = MessageBroker()
@@ -79,29 +106,6 @@ def _make_lifespan(config: ExecuteC2Config):
 
     return lifespan
 
-
-def _get_current_user(request: Request) -> str:
-    """Extract and verify JWT from Authorization header. Returns username."""
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authorization header",
-            headers={"WWW-Authenticate": "Bearer", "X-Code": "UNAUTHORIZED"},
-        )
-    token = auth.removeprefix("Bearer ")
-    jwt_manager: JWTManager = request.app.state.jwt_manager
-    try:
-        claims = jwt_manager.verify_token(token, expected_type="access")
-        return claims.username
-    except pyjwt.PyJWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer", "X-Code": "UNAUTHORIZED"},
-        )
-
-
 def create_app(config: ExecuteC2Config) -> FastAPI:
     app = FastAPI(
         title="ExecuteC2",
@@ -109,8 +113,14 @@ def create_app(config: ExecuteC2Config) -> FastAPI:
         lifespan=_make_lifespan(config),
     )
 
-    # Attach the auth helper as app state method
-    app.state.get_current_user = _get_current_user
+    if config.server.operator_ui_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=config.server.operator_ui_origins,
+            allow_methods=["GET", "POST", "PUT", "DELETE"],
+            allow_headers=["Authorization", "Content-Type"],
+            allow_credentials=False,
+        )
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
@@ -152,7 +162,7 @@ async def run_server(config: ExecuteC2Config) -> None:
 
     uv_config = uvicorn.Config(
         app=app,
-        host=config.server.host,
+        host=config.server.admin_bind_host or config.server.host,
         port=config.server.port,
         log_level=config.logging.level.lower(),
         **ssl_kwargs,

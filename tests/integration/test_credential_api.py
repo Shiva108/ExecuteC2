@@ -89,7 +89,14 @@ async def test_credential_at_rest_encryption(auth_client):
     # Read raw blob from DB — must NOT equal the plaintext
     result = await state.db.credential_get(cred_id)
     assert result is not None
-    _, blob = result
+    assert result.secret == "toplevel"
+
+    async with state.db._conn.execute(
+        "SELECT secret FROM credentials WHERE cred_id = ?",
+        (cred_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    blob = bytes(row["secret"])
     assert b"toplevel" not in blob
 
     # API returns decrypted plaintext

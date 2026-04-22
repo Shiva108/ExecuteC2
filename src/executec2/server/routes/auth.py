@@ -1,9 +1,19 @@
 """Authentication routes: login, refresh, OTP."""
 
+import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from executec2.server.models import OTPType
+from executec2.server.auth import (
+    ROLE_ADMIN,
+    ROLE_OPERATOR,
+    ROLE_VIEWER,
+    client_ip,
+    enforce_limit,
+    limit_key_user_ip,
+    require_roles,
+)
+from executec2.server.models import OTPType, TokenClaims
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -26,16 +36,12 @@ class OTPResponse(BaseModel):
     otp: str
 
 
-def get_current_user(request: Request):
-    return request.app.state.get_current_user(request)
-
-
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request):
     rate_limiter = request.app.state.rate_limiter
-    client_ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
 
-    if not rate_limiter.is_allowed(client_ip):
+    if not rate_limiter.is_allowed(ip):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts",
@@ -52,16 +58,15 @@ async def login(body: LoginRequest, request: Request):
             headers={"X-Code": "UNAUTHORIZED"},
         )
 
+    roles = list(operators[body.username]["roles"])
     return TokenResponse(
-        access_token=jwt_manager.create_access_token(body.username),
-        refresh_token=jwt_manager.create_refresh_token(body.username),
+        access_token=jwt_manager.create_access_token(body.username, roles=roles),
+        refresh_token=jwt_manager.create_refresh_token(body.username, roles=roles),
     )
 
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(request: Request):
-    import jwt as pyjwt
-
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing token")
@@ -79,17 +84,27 @@ async def refresh(request: Request):
         )
 
     return TokenResponse(
-        access_token=jwt_manager.create_access_token(claims.username),
-        refresh_token=jwt_manager.create_refresh_token(claims.username),
+        access_token=jwt_manager.create_access_token(claims.username, roles=claims.roles),
+        refresh_token=jwt_manager.create_refresh_token(claims.username, roles=claims.roles),
     )
 
 
 @router.post("/otp", response_model=OTPResponse)
-async def get_otp(body: OTPRequest, request: Request, user=Depends(get_current_user)):
+async def get_otp(
+    body: OTPRequest,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
+    enforce_limit(
+        request,
+        "otp",
+        limit_key_user_ip(request, claims.username),
+        detail="Too many OTP requests",
+    )
     otp_store = request.app.state.otp_store
     try:
         otp_type = OTPType(body.type)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid OTP type")
-    otp = otp_store.generate(user, otp_type)
+    otp = otp_store.generate(claims.username, otp_type)
     return OTPResponse(otp=otp)

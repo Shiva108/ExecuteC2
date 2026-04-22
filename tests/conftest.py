@@ -4,6 +4,17 @@ import pytest
 
 
 @pytest.fixture
+def master_secret_env(monkeypatch):
+    monkeypatch.setenv("EC2_MASTER_SECRET", "test-master-secret")
+
+
+@pytest.fixture(autouse=True)
+def _auto_master_secret(master_secret_env):
+    # Ensure all tests run with deterministic server secret material.
+    return None
+
+
+@pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
     data_dir = tmp_path / "data"
     data_dir.mkdir()

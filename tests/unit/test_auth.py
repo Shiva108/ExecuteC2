@@ -14,57 +14,60 @@ from executec2.server.models import OTPType
 
 
 def test_create_and_verify_access_token():
-    mgr = JWTManager()
-    token = mgr.create_access_token("alice")
+    mgr = JWTManager(secret=b"x" * 32)
+    token = mgr.create_access_token("alice", roles=["operator"])
     claims = mgr.verify_token(token, expected_type="access")
     assert claims.username == "alice"
     assert claims.token_type == "access"
+    assert claims.roles == ["operator"]
+    assert claims.sub == "alice"
 
 
 def test_create_and_verify_refresh_token():
-    mgr = JWTManager()
-    token = mgr.create_refresh_token("bob")
+    mgr = JWTManager(secret=b"x" * 32)
+    token = mgr.create_refresh_token("bob", roles=["admin"])
     claims = mgr.verify_token(token, expected_type="refresh")
     assert claims.username == "bob"
     assert claims.token_type == "refresh"
+    assert claims.roles == ["admin"]
 
 
 def test_verify_wrong_type_raises():
-    mgr = JWTManager()
-    access = mgr.create_access_token("alice")
+    mgr = JWTManager(secret=b"x" * 32)
+    access = mgr.create_access_token("alice", roles=["viewer"])
     with pytest.raises(pyjwt.PyJWTError):
         mgr.verify_token(access, expected_type="refresh")
 
 
 def test_verify_invalid_token_raises():
-    mgr = JWTManager()
+    mgr = JWTManager(secret=b"x" * 32)
     with pytest.raises(pyjwt.PyJWTError):
         mgr.verify_token("not.a.token")
 
 
 def test_verify_tampered_token_raises():
-    mgr = JWTManager()
-    token = mgr.create_access_token("alice")
+    mgr = JWTManager(secret=b"x" * 32)
+    token = mgr.create_access_token("alice", roles=["viewer"])
     tampered = token[:-4] + "xxxx"
     with pytest.raises(pyjwt.PyJWTError):
         mgr.verify_token(tampered)
 
 
 def test_verify_password_correct():
-    mgr = JWTManager()
-    operators = {"admin": "secret123"}
+    mgr = JWTManager(secret=b"x" * 32)
+    operators = {"admin": {"password": "secret123", "roles": ["admin"]}}
     assert mgr.verify_password("admin", "secret123", operators) is True
 
 
 def test_verify_password_wrong():
-    mgr = JWTManager()
-    operators = {"admin": "secret123"}
+    mgr = JWTManager(secret=b"x" * 32)
+    operators = {"admin": {"password": "secret123", "roles": ["admin"]}}
     assert mgr.verify_password("admin", "wrong", operators) is False
 
 
 def test_verify_password_unknown_user():
-    mgr = JWTManager()
-    operators = {"admin": "secret123"}
+    mgr = JWTManager(secret=b"x" * 32)
+    operators = {"admin": {"password": "secret123", "roles": ["admin"]}}
     assert mgr.verify_password("nobody", "secret123", operators) is False
 
 

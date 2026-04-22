@@ -5,30 +5,34 @@ import uuid
 import msgpack
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from executec2.server.auth import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from executec2.server.broker import MessageBroker
 from executec2.server.models import (
     BrokerMessage,
     BrokerMsgType,
     SyncPacketType,
     TargetData,
+    TokenClaims,
 )
 
 router = APIRouter(prefix="/api/targets", tags=["targets"])
 
-
-def get_current_user(request: Request):
-    return request.app.state.get_current_user(request)
-
-
 @router.get("")
-async def list_targets(request: Request, _=Depends(get_current_user)):
+async def list_targets(
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     items = await db.target_list()
     return [t.model_dump(mode="json") for t in items]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_target(body: dict, request: Request, _=Depends(get_current_user)):
+async def create_target(
+    body: dict,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
 
     target = TargetData(
@@ -60,7 +64,12 @@ async def create_target(body: dict, request: Request, _=Depends(get_current_user
 
 
 @router.put("/{target_id}")
-async def update_target(target_id: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def update_target(
+    target_id: str,
+    body: dict,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     if await db.target_get(target_id) is None:
         raise HTTPException(status_code=404, detail="Target not found")
@@ -86,7 +95,11 @@ async def update_target(target_id: str, body: dict, request: Request, _=Depends(
 
 
 @router.delete("/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_target(target_id: str, request: Request, _=Depends(get_current_user)):
+async def delete_target(
+    target_id: str,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     if await db.target_get(target_id) is None:
         raise HTTPException(status_code=404, detail="Target not found")
@@ -105,7 +118,12 @@ async def delete_target(target_id: str, request: Request, _=Depends(get_current_
 
 
 @router.put("/{target_id}/tag", status_code=status.HTTP_204_NO_CONTENT)
-async def tag_target(target_id: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def tag_target(
+    target_id: str,
+    body: dict,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     if await db.target_get(target_id) is None:
         raise HTTPException(status_code=404, detail="Target not found")

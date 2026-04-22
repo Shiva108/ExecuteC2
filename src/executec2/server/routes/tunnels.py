@@ -4,6 +4,14 @@
 import msgpack
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from executec2.server.auth import (
+    ROLE_ADMIN,
+    ROLE_OPERATOR,
+    ROLE_VIEWER,
+    enforce_limit,
+    limit_key_user_ip,
+    require_roles,
+)
 from executec2.server.broker import MessageBroker
 from executec2.server.models import (
     BrokerMessage,
@@ -11,15 +19,11 @@ from executec2.server.models import (
     SyncPacketType,
     TunnelData,
     TunnelType,
+    TokenClaims,
 )
 from executec2.tunnels import TunnelManager
 
 router = APIRouter(prefix="/api/tunnels", tags=["tunnels"])
-
-
-def get_current_user(request: Request):
-    return request.app.state.get_current_user(request)
-
 
 def _get_tunnel_manager(request: Request) -> TunnelManager:
     if not hasattr(request.app.state, "tunnel_manager"):
@@ -28,14 +32,22 @@ def _get_tunnel_manager(request: Request) -> TunnelManager:
 
 
 @router.get("")
-async def list_tunnels(request: Request, _=Depends(get_current_user)):
+async def list_tunnels(
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     tunnels = await db.tunnel_list()
     return [t.model_dump(mode="json") for t in tunnels]
 
 
 @router.post("/socks5", status_code=status.HTTP_201_CREATED)
-async def create_socks5(body: dict, request: Request, _=Depends(get_current_user)):
+async def create_socks5(
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "tunnel_mutation", limit_key_user_ip(request, claims.username))
     agent_id = body.get("agent_id")
     lhost = body.get("lhost", "127.0.0.1")
     lport = body.get("lport")
@@ -88,7 +100,12 @@ async def create_socks5(body: dict, request: Request, _=Depends(get_current_user
 
 
 @router.post("/lportfwd", status_code=status.HTTP_201_CREATED)
-async def create_lportfwd(body: dict, request: Request, _=Depends(get_current_user)):
+async def create_lportfwd(
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "tunnel_mutation", limit_key_user_ip(request, claims.username))
     agent_id = body.get("agent_id")
     lhost = body.get("lhost", "127.0.0.1")
     lport = body.get("lport")
@@ -138,7 +155,12 @@ async def create_lportfwd(body: dict, request: Request, _=Depends(get_current_us
 
 
 @router.post("/{tunnel_id}/stop", status_code=status.HTTP_204_NO_CONTENT)
-async def stop_tunnel(tunnel_id: str, request: Request, _=Depends(get_current_user)):
+async def stop_tunnel(
+    tunnel_id: str,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "tunnel_mutation", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     if await db.tunnel_get(tunnel_id) is None:
         raise HTTPException(status_code=404, detail="Tunnel not found")
@@ -157,7 +179,13 @@ async def stop_tunnel(tunnel_id: str, request: Request, _=Depends(get_current_us
 
 
 @router.put("/{tunnel_id}/info", status_code=status.HTTP_204_NO_CONTENT)
-async def update_tunnel_info(tunnel_id: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def update_tunnel_info(
+    tunnel_id: str,
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "tunnel_mutation", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     if await db.tunnel_get(tunnel_id) is None:
         raise HTTPException(status_code=404, detail="Tunnel not found")

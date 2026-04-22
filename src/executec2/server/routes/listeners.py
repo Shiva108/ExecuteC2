@@ -4,6 +4,14 @@
 import msgpack
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from executec2.server.auth import (
+    ROLE_ADMIN,
+    ROLE_OPERATOR,
+    ROLE_VIEWER,
+    enforce_limit,
+    limit_key_user_ip,
+    require_roles,
+)
 from executec2.server.broker import MessageBroker
 from executec2.server.models import (
     BrokerMessage,
@@ -11,14 +19,10 @@ from executec2.server.models import (
     ListenerData,
     ListenerStatus,
     SyncPacketType,
+    TokenClaims,
 )
 
 router = APIRouter(prefix="/api/listeners", tags=["listeners"])
-
-
-def get_current_user(request: Request):
-    return request.app.state.get_current_user(request)
-
 
 def _get_listener_instances(request: Request) -> dict:
     """Return the in-memory listener instances dict from app state."""
@@ -28,15 +32,23 @@ def _get_listener_instances(request: Request) -> dict:
 
 
 @router.get("")
-async def list_listeners(request: Request, _=Depends(get_current_user)):
+async def list_listeners(
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     listeners = await db.listener_list()
     return [listener.model_dump(mode="json") for listener in listeners]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_listener(body: dict, request: Request, _=Depends(get_current_user)):
+async def create_listener(
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
     """Create and start a new listener."""
+    enforce_limit(request, "listener_mutation", limit_key_user_ip(request, claims.username))
     from executec2.listeners import get_listener_class
 
     listener_type = body.get("listener_type")
@@ -95,8 +107,14 @@ async def create_listener(body: dict, request: Request, _=Depends(get_current_us
 
 
 @router.put("/{listener_name}")
-async def update_listener(listener_name: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def update_listener(
+    listener_name: str,
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
     """Update listener config (stop + restart with new config)."""
+    enforce_limit(request, "listener_mutation", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     existing = await db.listener_get(listener_name)
     if existing is None:
@@ -127,7 +145,12 @@ async def update_listener(listener_name: str, body: dict, request: Request, _=De
 
 
 @router.post("/{listener_name}/stop", status_code=status.HTTP_204_NO_CONTENT)
-async def stop_listener(listener_name: str, request: Request, _=Depends(get_current_user)):
+async def stop_listener(
+    listener_name: str,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "listener_mutation", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     if await db.listener_get(listener_name) is None:
         raise HTTPException(status_code=404, detail="Listener not found")
@@ -155,7 +178,12 @@ async def stop_listener(listener_name: str, request: Request, _=Depends(get_curr
 
 
 @router.post("/{listener_name}/pause", status_code=status.HTTP_204_NO_CONTENT)
-async def pause_listener(listener_name: str, request: Request, _=Depends(get_current_user)):
+async def pause_listener(
+    listener_name: str,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "listener_mutation", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     if await db.listener_get(listener_name) is None:
         raise HTTPException(status_code=404, detail="Listener not found")
@@ -169,7 +197,12 @@ async def pause_listener(listener_name: str, request: Request, _=Depends(get_cur
 
 
 @router.post("/{listener_name}/resume", status_code=status.HTTP_204_NO_CONTENT)
-async def resume_listener(listener_name: str, request: Request, _=Depends(get_current_user)):
+async def resume_listener(
+    listener_name: str,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
+    enforce_limit(request, "listener_mutation", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     if await db.listener_get(listener_name) is None:
         raise HTTPException(status_code=404, detail="Listener not found")

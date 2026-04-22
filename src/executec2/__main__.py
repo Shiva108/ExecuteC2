@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument(
         "--host",
         default=os.environ.get("EC2_HOST"),
-        help="Override bind address",
+        help="Override management bind address",
     )
     parser.add_argument(
         "--port", "-p",
@@ -62,11 +62,16 @@ def main() -> None:
 
     # Apply CLI overrides
     if args.host:
-        raw.setdefault("server", {})["host"] = args.host
+        raw.setdefault("server", {})["admin_bind_host"] = args.host
     if args.port:
         raw.setdefault("server", {})["port"] = args.port
     if args.debug:
         raw.setdefault("logging", {})["level"] = "DEBUG"
+
+    # Backward compatibility: support deprecated server.host alias.
+    server_cfg = raw.setdefault("server", {})
+    if "admin_bind_host" not in server_cfg and "host" in server_cfg:
+        server_cfg["admin_bind_host"] = server_cfg["host"]
 
     from executec2.config.schema import ExecuteC2Config
     config = ExecuteC2Config.model_validate(raw)

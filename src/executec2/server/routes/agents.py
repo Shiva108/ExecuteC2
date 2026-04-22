@@ -1,25 +1,23 @@
-"""Agent routes — Phase 7+8 implementation."""
+"""Agent routes."""
 
+import base64
 import secrets
 
 import msgpack
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from executec2.server.models import (
-    TaskData,
-    TaskType,
+from executec2.server.auth import (
+    ROLE_ADMIN,
+    ROLE_OPERATOR,
+    ROLE_VIEWER,
+    enforce_limit,
+    limit_key_user_ip,
+    require_command_permission,
+    require_roles,
 )
+from executec2.server.models import TaskData, TaskType, TokenClaims
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
-
-
-def get_db(request: Request):
-    return request.app.state.db
-
-
-def get_current_user(request: Request):
-    return request.app.state.get_current_user(request)
-
 
 _EXCLUDE_FIELDS = {"session_key", "custom_data"}
 
@@ -29,14 +27,21 @@ def _agent_json(a) -> dict:
 
 
 @router.get("")
-async def list_agents(request: Request, _=Depends(get_current_user)):
+async def list_agents(
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     agents = await db.agent_list()
     return [_agent_json(a) for a in agents]
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_agent(agent_id: str, request: Request, _=Depends(get_current_user)):
+async def delete_agent(
+    agent_id: str,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
     db = request.app.state.db
     agent = await db.agent_get(agent_id)
     if agent is None:
@@ -45,11 +50,17 @@ async def delete_agent(agent_id: str, request: Request, _=Depends(get_current_us
 
 
 @router.post("/{agent_id}/commands", status_code=status.HTTP_201_CREATED)
-async def execute_command(agent_id: str, body: dict, request: Request, username: str = Depends(get_current_user)):
+async def execute_command(
+    agent_id: str,
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     """Dispatch a named command to an agent."""
     from executec2.agents import get_agent_class
     from executec2.commands.registry import get_registry
 
+    enforce_limit(request, "command", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     agent_data = await db.agent_get(agent_id)
     if agent_data is None:
@@ -59,6 +70,8 @@ async def execute_command(agent_id: str, body: dict, request: Request, username:
     args = body.get("args", {})
     if not command_name:
         raise HTTPException(status_code=400, detail="command is required")
+
+    require_command_permission(command_name, claims)
 
     registry = get_registry()
     cmd_def = registry.get(agent_data.name, command_name)
@@ -83,6 +96,9 @@ async def execute_command(agent_id: str, body: dict, request: Request, username:
         raise HTTPException(status_code=500, detail="Agent plugin not found")
 
     task_payload_dict = plugin.build_task(command_name, args)
+    packed_payload = msgpack.packb(task_payload_dict)
+    if len(packed_payload) > request.app.state.max_task_payload_bytes:
+        raise HTTPException(status_code=413, detail="Task payload too large")
 
     # Create task record
     task_id = secrets.token_hex(4)
@@ -91,10 +107,10 @@ async def execute_command(agent_id: str, body: dict, request: Request, username:
         task_id=task_id,
         agent_id=agent_id,
         task_type=TaskType.TASK,
-        client=username,
+        client=claims.username,
         command_line=command_line,
     )
-    task.data = msgpack.packb(task_payload_dict)
+    task.data = packed_payload
 
     # Dispatch via teamserver
     teamserver = request.app.state.teamserver
@@ -107,10 +123,14 @@ async def execute_command(agent_id: str, body: dict, request: Request, username:
 
 
 @router.post("/{agent_id}/commands/raw", status_code=status.HTTP_201_CREATED)
-async def execute_raw(agent_id: str, body: dict, request: Request, username: str = Depends(get_current_user)):
+async def execute_raw(
+    agent_id: str,
+    body: dict,
+    request: Request,
+    claims: TokenClaims = Depends(require_roles(ROLE_ADMIN)),
+):
     """Enqueue raw bytes as a task (bypasses registry)."""
-    import base64
-
+    enforce_limit(request, "raw_command", limit_key_user_ip(request, claims.username))
     db = request.app.state.db
     if await db.agent_get(agent_id) is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -124,12 +144,15 @@ async def execute_raw(agent_id: str, body: dict, request: Request, username: str
     except Exception:
         raise HTTPException(status_code=422, detail="data must be valid base64")
 
+    if len(raw_bytes) > request.app.state.max_task_payload_bytes:
+        raise HTTPException(status_code=413, detail="Task payload too large")
+
     task_id = secrets.token_hex(4)
     task = TaskData(
         task_id=task_id,
         agent_id=agent_id,
         task_type=TaskType.TASK,
-        client=username,
+        client=claims.username,
         command_line="<raw>",
     )
     task.data = raw_bytes
@@ -141,7 +164,12 @@ async def execute_raw(agent_id: str, body: dict, request: Request, username: str
 
 
 @router.put("/{agent_id}/tag", status_code=status.HTTP_204_NO_CONTENT)
-async def set_tag(agent_id: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def set_tag(
+    agent_id: str,
+    body: dict,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     if await db.agent_get(agent_id) is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -149,7 +177,12 @@ async def set_tag(agent_id: str, body: dict, request: Request, _=Depends(get_cur
 
 
 @router.put("/{agent_id}/mark", status_code=status.HTTP_204_NO_CONTENT)
-async def set_mark(agent_id: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def set_mark(
+    agent_id: str,
+    body: dict,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     if await db.agent_get(agent_id) is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -158,7 +191,12 @@ async def set_mark(agent_id: str, body: dict, request: Request, _=Depends(get_cu
 
 
 @router.put("/{agent_id}/color", status_code=status.HTTP_204_NO_CONTENT)
-async def set_color(agent_id: str, body: dict, request: Request, _=Depends(get_current_user)):
+async def set_color(
+    agent_id: str,
+    body: dict,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     if await db.agent_get(agent_id) is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -166,7 +204,11 @@ async def set_color(agent_id: str, body: dict, request: Request, _=Depends(get_c
 
 
 @router.get("/{agent_id}/tasks")
-async def list_tasks(agent_id: str, request: Request, _=Depends(get_current_user)):
+async def list_tasks(
+    agent_id: str,
+    request: Request,
+    _claims: TokenClaims = Depends(require_roles(ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN)),
+):
     db = request.app.state.db
     tasks = await db.task_list(agent_id)
     return [t.model_dump(mode="json", exclude={"data"}) for t in tasks]
