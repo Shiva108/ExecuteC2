@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Stage {{ view.stage }}</h2>
+  <p class="muted">Counts: {{ view.counts }}</p>
+</section>
+<section class="card">
+  <h3>Create Asset</h3>
+  <form method="post" action="/ui/infrastructure/assets">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="stage" value="{{ view.stage }}">
+    <label>Name<br><input name="name" required></label><br>
+    <label>Type<br>
+      <select name="asset_type">
+        <option value="domain">domain</option>
+        <option value="redirector">redirector</option>
+        <option value="cdn_edge">cdn_edge</option>
+        <option value="certificate">certificate</option>
+        <option value="listener">listener</option>
+        <option value="teamserver">teamserver</option>
+      </select>
+    </label><br>
+    <label>Provider<br><input name="provider" value="cloudflare"></label><br>
+    <label>Hostname<br><input name="hostname"></label><br>
+    <button type="submit">Create Asset</button>
+  </form>
+</section>
+<section class="grid">
+  {% for asset in view.assets %}
+  <article class="card">
+    <h3><a href="/ui/infrastructure/assets/{{ asset.asset_id }}">{{ asset.name }}</a></h3>
+    <p>{{ asset.asset_type }} / {{ asset.provider }}</p>
+    <p class="muted">Health: {{ asset.health }}{% if asset.stage_owner %} · Owner: {{ asset.stage_owner }}{% endif %}</p>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

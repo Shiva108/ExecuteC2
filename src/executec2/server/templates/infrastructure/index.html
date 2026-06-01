@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Stages</h2>
+  <div class="grid">
+    {% for stage in stages %}
+    <article class="card">
+      <h3><a href="/ui/infrastructure/stages/{{ stage.stage }}">Stage {{ stage.stage }}</a></h3>
+      <p>{{ stage.assets|length }} assets</p>
+      <p class="muted">{{ stage.counts }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+<section class="card">
+  <h2>Recent Runs</h2>
+  <table>
+    <thead>
+      <tr><th>Run</th><th>Operation</th><th>Status</th><th>Target</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="/ui/infrastructure/runs/{{ run.run_id }}" class="mono">{{ run.run_id[:12] }}</a></td>
+        <td>{{ run.operation }}</td>
+        <td>{{ run.status }}</td>
+        <td>{{ run.target }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

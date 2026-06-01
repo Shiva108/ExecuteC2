@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>{{ asset.name }}</h2>
+  <p>{{ asset.asset_type }} / {{ asset.provider }}</p>
+  <p class="muted">Health: {{ asset.health }} · DNS: {{ asset.dns_state or "n/a" }} · Target: {{ asset.deploy_target }}</p>
+  <pre class="mono">{{ asset }}</pre>
+</section>
+<section class="card">
+  <h3>Ingress Chain</h3>
+  <ul>
+    {% for item in chain %}
+    <li>{{ item.name }} ({{ item.asset_type }})</li>
+    {% endfor %}
+  </ul>
+</section>
+<section class="card">
+  <h3>Plan Run</h3>
+  <form method="post" action="/ui/infrastructure/runs">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="asset_id" value="{{ asset.asset_id }}">
+    <label>Operation<br>
+      <select name="operation">
+        <option value="apply">apply</option>
+        <option value="reapply">reapply</option>
+        <option value="rotate">rotate</option>
+        <option value="teardown">teardown</option>
+      </select>
+    </label><br>
+    <label>Target<br>
+      <select name="target">
+        {% for target in deploy_targets %}
+        <option value="{{ target }}">{{ target }}</option>
+        {% endfor %}
+      </select>
+    </label><br>
+    <button type="submit">Create Planned Run</button>
+  </form>
+</section>
+<section class="card">
+  <h3>Run History</h3>
+  <table>
+    <thead>
+      <tr><th>Run</th><th>Operation</th><th>Status</th><th>Target</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="/ui/infrastructure/runs/{{ run.run_id }}" class="mono">{{ run.run_id[:12] }}</a></td>
+        <td>{{ run.operation }}</td>
+        <td>{{ run.status }}</td>
+        <td>{{ run.target }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

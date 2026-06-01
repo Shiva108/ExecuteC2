@@ -15,8 +15,16 @@ from executec2.server.models import (
     ChatMessage,
     CredentialData,
     CredentialType,
+    DeploymentRunData,
+    DeploymentRunStatus,
+    DeployTarget,
     DownloadData,
     DownloadState,
+    InfraHealthSnapshotData,
+    InfraHealthStatus,
+    InfraStage,
+    InfrastructureAssetData,
+    InfrastructureAssetType,
     ListenerData,
     ListenerStatus,
     MessageType,
@@ -24,6 +32,9 @@ from executec2.server.models import (
     TargetData,
     TaskData,
     TaskType,
+    TrafficProfileData,
+    TrafficProfileKind,
+    TrafficProfileTLSMode,
     TunnelData,
     TunnelType,
 )
@@ -33,9 +44,93 @@ CREATE TABLE IF NOT EXISTS listeners (
     listener_name TEXT PRIMARY KEY,
     listener_type TEXT NOT NULL,
     config        TEXT NOT NULL,
+    traffic_profile_id TEXT NOT NULL DEFAULT '',
+    ingress_asset_id   TEXT NOT NULL DEFAULT '',
     status        TEXT NOT NULL DEFAULT 'stopped',
     create_time   INTEGER NOT NULL,
     watermark     TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS traffic_profiles (
+    profile_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    listener_type TEXT NOT NULL,
+    stage INTEGER NOT NULL,
+    profile_kind TEXT NOT NULL,
+    callback_hostnames TEXT NOT NULL DEFAULT '[]',
+    uris TEXT NOT NULL DEFAULT '[]',
+    http_method TEXT NOT NULL DEFAULT 'POST',
+    user_agents TEXT NOT NULL DEFAULT '[]',
+    host_headers TEXT NOT NULL DEFAULT '[]',
+    request_headers TEXT NOT NULL DEFAULT '{}',
+    response_headers TEXT NOT NULL DEFAULT '{}',
+    trust_x_forwarded_for BOOLEAN NOT NULL DEFAULT 0,
+    page_error TEXT NOT NULL DEFAULT '',
+    page_payload TEXT NOT NULL DEFAULT '',
+    tls_mode TEXT NOT NULL DEFAULT 'optional',
+    source_listener TEXT NOT NULL DEFAULT '',
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS infrastructure_assets (
+    asset_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    asset_type TEXT NOT NULL,
+    stage INTEGER NOT NULL,
+    provider TEXT NOT NULL DEFAULT '',
+    parent_asset_id TEXT NOT NULL DEFAULT '',
+    linked_listener_name TEXT NOT NULL DEFAULT '',
+    traffic_profile_id TEXT NOT NULL DEFAULT '',
+    owner TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '[]',
+    config TEXT NOT NULL DEFAULT '{}',
+    deploy_target TEXT NOT NULL DEFAULT 'docker_compose',
+    health TEXT NOT NULL DEFAULT 'unknown',
+    dns_state TEXT NOT NULL DEFAULT '',
+    certificate_expires_at INTEGER,
+    upstream_asset_ids TEXT NOT NULL DEFAULT '[]',
+    downstream_asset_ids TEXT NOT NULL DEFAULT '[]',
+    stage_owner TEXT NOT NULL DEFAULT '',
+    rendered_checksum TEXT NOT NULL DEFAULT '',
+    last_deployment_run_id TEXT NOT NULL DEFAULT '',
+    last_health_observed_at INTEGER,
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS deployment_runs (
+    run_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    target TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    artifact_dir TEXT NOT NULL DEFAULT '',
+    plan_data TEXT NOT NULL DEFAULT '{}',
+    provider_responses TEXT NOT NULL DEFAULT '{}',
+    error TEXT NOT NULL DEFAULT '',
+    failure_reason TEXT NOT NULL DEFAULT '',
+    failure_phase TEXT NOT NULL DEFAULT '',
+    backend_commands TEXT NOT NULL DEFAULT '[]',
+    execution_log TEXT NOT NULL DEFAULT '[]',
+    health_checks TEXT NOT NULL DEFAULT '[]',
+    rollback_data TEXT NOT NULL DEFAULT '{}',
+    replacement_asset_id TEXT NOT NULL DEFAULT '',
+    started_at INTEGER,
+    finished_at INTEGER,
+    timeout_seconds INTEGER NOT NULL DEFAULT 90,
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS infra_health_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '{}',
+    observed_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -174,6 +269,18 @@ def _dt(ts: int) -> datetime:
     return datetime.fromtimestamp(ts, UTC)
 
 
+def _maybe_ts(dt: datetime | None) -> int | None:
+    if dt is None:
+        return None
+    return _ts(dt)
+
+
+def _maybe_dt(ts: int | None) -> datetime | None:
+    if ts is None:
+        return None
+    return _dt(ts)
+
+
 class Database:
     def __init__(self, conn: aiosqlite.Connection, secret_context=None):
         self._conn = conn
@@ -196,6 +303,33 @@ class Database:
     async def migrate(self) -> None:
         await self._conn.executescript(_SCHEMA)
         await self._ensure_column("agents", "last_counter", "INTEGER NOT NULL DEFAULT 0")
+        await self._ensure_column("listeners", "traffic_profile_id", "TEXT NOT NULL DEFAULT ''")
+        await self._ensure_column("listeners", "ingress_asset_id", "TEXT NOT NULL DEFAULT ''")
+        await self._ensure_column("infrastructure_assets", "dns_state", "TEXT NOT NULL DEFAULT ''")
+        await self._ensure_column("infrastructure_assets", "certificate_expires_at", "INTEGER")
+        await self._ensure_column(
+            "infrastructure_assets", "upstream_asset_ids", "TEXT NOT NULL DEFAULT '[]'"
+        )
+        await self._ensure_column(
+            "infrastructure_assets", "downstream_asset_ids", "TEXT NOT NULL DEFAULT '[]'"
+        )
+        await self._ensure_column(
+            "infrastructure_assets", "stage_owner", "TEXT NOT NULL DEFAULT ''"
+        )
+        await self._ensure_column("infrastructure_assets", "last_health_observed_at", "INTEGER")
+        await self._ensure_column("deployment_runs", "failure_reason", "TEXT NOT NULL DEFAULT ''")
+        await self._ensure_column("deployment_runs", "failure_phase", "TEXT NOT NULL DEFAULT ''")
+        await self._ensure_column(
+            "deployment_runs", "backend_commands", "TEXT NOT NULL DEFAULT '[]'"
+        )
+        await self._ensure_column("deployment_runs", "execution_log", "TEXT NOT NULL DEFAULT '[]'")
+        await self._ensure_column("deployment_runs", "health_checks", "TEXT NOT NULL DEFAULT '[]'")
+        await self._ensure_column("deployment_runs", "rollback_data", "TEXT NOT NULL DEFAULT '{}'")
+        await self._ensure_column("deployment_runs", "started_at", "INTEGER")
+        await self._ensure_column("deployment_runs", "finished_at", "INTEGER")
+        await self._ensure_column(
+            "deployment_runs", "timeout_seconds", "INTEGER NOT NULL DEFAULT 90"
+        )
         await self._conn.commit()
 
     async def _ensure_column(self, table: str, column: str, ddl_fragment: str) -> None:
@@ -310,12 +444,15 @@ class Database:
 
     async def listener_insert(self, data: ListenerData) -> None:
         await self._conn.execute(
-            "INSERT INTO listeners (listener_name, listener_type, config, status, create_time, watermark)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO listeners (listener_name, listener_type, config, traffic_profile_id,"
+            " ingress_asset_id, status, create_time, watermark)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.listener_name,
                 data.listener_type,
                 json.dumps(data.config),
+                data.traffic_profile_id,
+                data.ingress_asset_id,
                 data.status.value,
                 _ts(data.create_time),
                 data.watermark,
@@ -334,6 +471,8 @@ class Database:
             listener_name=row["listener_name"],
             listener_type=row["listener_type"],
             config=json.loads(row["config"]),
+            traffic_profile_id=row["traffic_profile_id"],
+            ingress_asset_id=row["ingress_asset_id"],
             status=ListenerStatus(row["status"]),
             create_time=_dt(row["create_time"]),
             watermark=row["watermark"],
@@ -347,6 +486,8 @@ class Database:
                 listener_name=r["listener_name"],
                 listener_type=r["listener_type"],
                 config=json.loads(r["config"]),
+                traffic_profile_id=r["traffic_profile_id"],
+                ingress_asset_id=r["ingress_asset_id"],
                 status=ListenerStatus(r["status"]),
                 create_time=_dt(r["create_time"]),
                 watermark=r["watermark"],
@@ -355,7 +496,13 @@ class Database:
         ]
 
     async def listener_update(self, name: str, **fields: Any) -> None:
-        _col_map = {"status": "status", "config": "config", "watermark": "watermark"}
+        _col_map = {
+            "status": "status",
+            "config": "config",
+            "watermark": "watermark",
+            "traffic_profile_id": "traffic_profile_id",
+            "ingress_asset_id": "ingress_asset_id",
+        }
         sets, vals = [], []
         for k, v in fields.items():
             col = _col_map.get(k, k)
@@ -376,6 +523,412 @@ class Database:
         await self._conn.commit()
 
     # -----------------------------------------------------------------------
+    # Traffic profile CRUD
+    # -----------------------------------------------------------------------
+
+    def _row_to_traffic_profile(self, row: aiosqlite.Row) -> TrafficProfileData:
+        return TrafficProfileData(
+            profile_id=row["profile_id"],
+            name=row["name"],
+            listener_type=row["listener_type"],
+            stage=InfraStage(row["stage"]),
+            profile_kind=TrafficProfileKind(row["profile_kind"]),
+            callback_hostnames=json.loads(row["callback_hostnames"]),
+            uris=json.loads(row["uris"]),
+            http_method=row["http_method"],
+            user_agents=json.loads(row["user_agents"]),
+            host_headers=json.loads(row["host_headers"]),
+            request_headers=json.loads(row["request_headers"]),
+            response_headers=json.loads(row["response_headers"]),
+            trust_x_forwarded_for=bool(row["trust_x_forwarded_for"]),
+            page_error=row["page_error"],
+            page_payload=row["page_payload"],
+            tls_mode=TrafficProfileTLSMode(row["tls_mode"]),
+            source_listener=row["source_listener"],
+            create_time=_dt(row["create_time"]),
+            update_time=_dt(row["update_time"]),
+        )
+
+    async def traffic_profile_insert(self, data: TrafficProfileData) -> None:
+        await self._conn.execute(
+            "INSERT INTO traffic_profiles (profile_id, name, listener_type, stage, profile_kind,"
+            " callback_hostnames, uris, http_method, user_agents, host_headers, request_headers,"
+            " response_headers, trust_x_forwarded_for, page_error, page_payload, tls_mode,"
+            " source_listener, create_time, update_time)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                data.profile_id,
+                data.name,
+                data.listener_type,
+                int(data.stage),
+                data.profile_kind.value,
+                json.dumps(data.callback_hostnames),
+                json.dumps(data.uris),
+                data.http_method,
+                json.dumps(data.user_agents),
+                json.dumps(data.host_headers),
+                json.dumps(data.request_headers),
+                json.dumps(data.response_headers),
+                int(data.trust_x_forwarded_for),
+                data.page_error,
+                data.page_payload,
+                data.tls_mode.value,
+                data.source_listener,
+                _ts(data.create_time),
+                _ts(data.update_time),
+            ),
+        )
+        await self._conn.commit()
+
+    async def traffic_profile_get(self, profile_id: str) -> TrafficProfileData | None:
+        async with self._conn.execute(
+            "SELECT * FROM traffic_profiles WHERE profile_id = ?",
+            (profile_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row_to_traffic_profile(row) if row else None
+
+    async def traffic_profile_list(self) -> list[TrafficProfileData]:
+        async with self._conn.execute("SELECT * FROM traffic_profiles ORDER BY create_time") as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_traffic_profile(row) for row in rows]
+
+    async def traffic_profile_update(self, profile_id: str, **fields: Any) -> None:
+        json_fields = {
+            "callback_hostnames",
+            "uris",
+            "user_agents",
+            "host_headers",
+            "request_headers",
+            "response_headers",
+        }
+        sets, vals = [], []
+        for key, value in fields.items():
+            if key in json_fields:
+                value = json.dumps(value)
+            elif key == "trust_x_forwarded_for":
+                value = int(bool(value))
+            elif isinstance(value, datetime):
+                value = _ts(value)
+            elif hasattr(value, "value"):
+                value = value.value
+            sets.append(f"{key} = ?")
+            vals.append(value)
+        vals.append(profile_id)
+        await self._conn.execute(
+            f"UPDATE traffic_profiles SET {', '.join(sets)} WHERE profile_id = ?",
+            vals,
+        )
+        await self._conn.commit()
+
+    async def traffic_profile_delete(self, profile_id: str) -> None:
+        await self._conn.execute("DELETE FROM traffic_profiles WHERE profile_id = ?", (profile_id,))
+        await self._conn.commit()
+
+    # -----------------------------------------------------------------------
+    # Infrastructure asset CRUD
+    # -----------------------------------------------------------------------
+
+    def _row_to_infrastructure_asset(self, row: aiosqlite.Row) -> InfrastructureAssetData:
+        return InfrastructureAssetData(
+            asset_id=row["asset_id"],
+            name=row["name"],
+            asset_type=InfrastructureAssetType(row["asset_type"]),
+            stage=InfraStage(row["stage"]),
+            provider=row["provider"],
+            parent_asset_id=row["parent_asset_id"],
+            linked_listener_name=row["linked_listener_name"],
+            traffic_profile_id=row["traffic_profile_id"],
+            owner=row["owner"],
+            tags=json.loads(row["tags"]),
+            config=json.loads(row["config"]),
+            deploy_target=DeployTarget(row["deploy_target"]),
+            health=InfraHealthStatus(row["health"]),
+            dns_state=row["dns_state"],
+            certificate_expires_at=_maybe_dt(row["certificate_expires_at"]),
+            upstream_asset_ids=json.loads(row["upstream_asset_ids"]),
+            downstream_asset_ids=json.loads(row["downstream_asset_ids"]),
+            stage_owner=row["stage_owner"],
+            rendered_checksum=row["rendered_checksum"],
+            last_deployment_run_id=row["last_deployment_run_id"],
+            last_health_observed_at=_maybe_dt(row["last_health_observed_at"]),
+            create_time=_dt(row["create_time"]),
+            update_time=_dt(row["update_time"]),
+        )
+
+    async def infrastructure_asset_insert(self, data: InfrastructureAssetData) -> None:
+        await self._conn.execute(
+            "INSERT INTO infrastructure_assets ("
+            "asset_id, name, asset_type, stage, provider, parent_asset_id, "
+            "linked_listener_name, traffic_profile_id, owner, tags, config, "
+            "deploy_target, health, dns_state, certificate_expires_at, upstream_asset_ids, "
+            "downstream_asset_ids, stage_owner, rendered_checksum, last_deployment_run_id, "
+            "last_health_observed_at, create_time, update_time)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                data.asset_id,
+                data.name,
+                data.asset_type.value,
+                int(data.stage),
+                data.provider,
+                data.parent_asset_id,
+                data.linked_listener_name,
+                data.traffic_profile_id,
+                data.owner,
+                json.dumps(data.tags),
+                json.dumps(data.config),
+                data.deploy_target.value,
+                data.health.value,
+                data.dns_state,
+                _maybe_ts(data.certificate_expires_at),
+                json.dumps(data.upstream_asset_ids),
+                json.dumps(data.downstream_asset_ids),
+                data.stage_owner,
+                data.rendered_checksum,
+                data.last_deployment_run_id,
+                _maybe_ts(data.last_health_observed_at),
+                _ts(data.create_time),
+                _ts(data.update_time),
+            ),
+        )
+        await self._conn.commit()
+
+    async def infrastructure_asset_get(self, asset_id: str) -> InfrastructureAssetData | None:
+        async with self._conn.execute(
+            "SELECT * FROM infrastructure_assets WHERE asset_id = ?",
+            (asset_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row_to_infrastructure_asset(row) if row else None
+
+    async def infrastructure_asset_list(
+        self,
+        *,
+        stage: InfraStage | None = None,
+        asset_type: InfrastructureAssetType | None = None,
+    ) -> list[InfrastructureAssetData]:
+        query = "SELECT * FROM infrastructure_assets"
+        clauses = []
+        vals: list[Any] = []
+        if stage is not None:
+            clauses.append("stage = ?")
+            vals.append(int(stage))
+        if asset_type is not None:
+            clauses.append("asset_type = ?")
+            vals.append(asset_type.value)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY create_time"
+        async with self._conn.execute(query, vals) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_infrastructure_asset(row) for row in rows]
+
+    async def infrastructure_asset_update(self, asset_id: str, **fields: Any) -> None:
+        json_fields = {"tags", "config", "upstream_asset_ids", "downstream_asset_ids"}
+        sets, vals = [], []
+        for key, value in fields.items():
+            if key in json_fields:
+                value = json.dumps(value)
+            elif isinstance(value, datetime):
+                value = _ts(value)
+            elif value is None and key in {"certificate_expires_at", "last_health_observed_at"}:
+                value = None
+            elif hasattr(value, "value"):
+                value = value.value
+            sets.append(f"{key} = ?")
+            vals.append(value)
+        vals.append(asset_id)
+        await self._conn.execute(
+            f"UPDATE infrastructure_assets SET {', '.join(sets)} WHERE asset_id = ?",
+            vals,
+        )
+        await self._conn.commit()
+
+    async def infrastructure_asset_delete(self, asset_id: str) -> None:
+        await self._conn.execute(
+            "DELETE FROM infrastructure_assets WHERE asset_id = ?", (asset_id,)
+        )
+        await self._conn.commit()
+
+    # -----------------------------------------------------------------------
+    # Deployment run CRUD
+    # -----------------------------------------------------------------------
+
+    def _row_to_deployment_run(self, row: aiosqlite.Row) -> DeploymentRunData:
+        return DeploymentRunData(
+            run_id=row["run_id"],
+            asset_id=row["asset_id"],
+            operation=row["operation"],
+            target=DeployTarget(row["target"]),
+            status=DeploymentRunStatus(row["status"]),
+            created_by=row["created_by"],
+            artifact_dir=row["artifact_dir"],
+            plan_data=json.loads(row["plan_data"]),
+            provider_responses=json.loads(row["provider_responses"]),
+            error=row["error"],
+            failure_reason=row["failure_reason"],
+            failure_phase=row["failure_phase"],
+            backend_commands=json.loads(row["backend_commands"]),
+            execution_log=json.loads(row["execution_log"]),
+            health_checks=json.loads(row["health_checks"]),
+            rollback_data=json.loads(row["rollback_data"]),
+            replacement_asset_id=row["replacement_asset_id"],
+            started_at=_maybe_dt(row["started_at"]),
+            finished_at=_maybe_dt(row["finished_at"]),
+            timeout_seconds=row["timeout_seconds"],
+            create_time=_dt(row["create_time"]),
+            update_time=_dt(row["update_time"]),
+        )
+
+    async def deployment_run_insert(self, data: DeploymentRunData) -> None:
+        await self._conn.execute(
+            "INSERT INTO deployment_runs ("
+            "run_id, asset_id, operation, target, status, created_by, artifact_dir, "
+            "plan_data, provider_responses, error, failure_reason, failure_phase, "
+            "backend_commands, execution_log, health_checks, rollback_data, "
+            "replacement_asset_id, started_at, finished_at, timeout_seconds, "
+            "create_time, update_time)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                data.run_id,
+                data.asset_id,
+                data.operation,
+                data.target.value,
+                data.status.value,
+                data.created_by,
+                data.artifact_dir,
+                json.dumps(data.plan_data),
+                json.dumps(data.provider_responses),
+                data.error,
+                data.failure_reason,
+                data.failure_phase,
+                json.dumps(data.backend_commands),
+                json.dumps(data.execution_log),
+                json.dumps(data.health_checks),
+                json.dumps(data.rollback_data),
+                data.replacement_asset_id,
+                _maybe_ts(data.started_at),
+                _maybe_ts(data.finished_at),
+                data.timeout_seconds,
+                _ts(data.create_time),
+                _ts(data.update_time),
+            ),
+        )
+        await self._conn.commit()
+
+    async def deployment_run_get(self, run_id: str) -> DeploymentRunData | None:
+        async with self._conn.execute(
+            "SELECT * FROM deployment_runs WHERE run_id = ?",
+            (run_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row_to_deployment_run(row) if row else None
+
+    async def deployment_run_list(
+        self,
+        asset_id: str | None = None,
+        status: DeploymentRunStatus | None = None,
+        operation: str | None = None,
+        target: DeployTarget | None = None,
+    ) -> list[DeploymentRunData]:
+        query = "SELECT * FROM deployment_runs"
+        clauses = []
+        vals: list[Any] = []
+        if asset_id:
+            clauses.append("asset_id = ?")
+            vals.append(asset_id)
+        if status is not None:
+            clauses.append("status = ?")
+            vals.append(status.value)
+        if operation:
+            clauses.append("operation = ?")
+            vals.append(operation)
+        if target is not None:
+            clauses.append("target = ?")
+            vals.append(target.value)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY create_time"
+        async with self._conn.execute(query, vals) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_deployment_run(row) for row in rows]
+
+    async def deployment_run_update(self, run_id: str, **fields: Any) -> None:
+        json_fields = {
+            "plan_data",
+            "provider_responses",
+            "backend_commands",
+            "execution_log",
+            "health_checks",
+            "rollback_data",
+        }
+        sets, vals = [], []
+        for key, value in fields.items():
+            if key in json_fields:
+                value = json.dumps(value)
+            elif isinstance(value, datetime):
+                value = _ts(value)
+            elif value is None and key in {"started_at", "finished_at"}:
+                value = None
+            elif hasattr(value, "value"):
+                value = value.value
+            sets.append(f"{key} = ?")
+            vals.append(value)
+        vals.append(run_id)
+        await self._conn.execute(
+            f"UPDATE deployment_runs SET {', '.join(sets)} WHERE run_id = ?",
+            vals,
+        )
+        await self._conn.commit()
+
+    async def deployment_run_delete(self, run_id: str) -> None:
+        await self._conn.execute("DELETE FROM deployment_runs WHERE run_id = ?", (run_id,))
+        await self._conn.commit()
+
+    # -----------------------------------------------------------------------
+    # Infra health snapshots
+    # -----------------------------------------------------------------------
+
+    def _row_to_health_snapshot(self, row: aiosqlite.Row) -> InfraHealthSnapshotData:
+        return InfraHealthSnapshotData(
+            snapshot_id=row["snapshot_id"],
+            asset_id=row["asset_id"],
+            status=InfraHealthStatus(row["status"]),
+            summary=row["summary"],
+            details=json.loads(row["details"]),
+            observed_at=_dt(row["observed_at"]),
+        )
+
+    async def infra_health_snapshot_insert(self, data: InfraHealthSnapshotData) -> None:
+        await self._conn.execute(
+            "INSERT INTO infra_health_snapshots ("
+            "snapshot_id, asset_id, status, summary, details, observed_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                data.snapshot_id,
+                data.asset_id,
+                data.status.value,
+                data.summary,
+                json.dumps(data.details),
+                _ts(data.observed_at),
+            ),
+        )
+        await self._conn.commit()
+
+    async def infra_health_snapshot_list(
+        self, asset_id: str | None = None
+    ) -> list[InfraHealthSnapshotData]:
+        query = "SELECT * FROM infra_health_snapshots"
+        vals: list[Any] = []
+        if asset_id:
+            query += " WHERE asset_id = ?"
+            vals.append(asset_id)
+        query += " ORDER BY observed_at"
+        async with self._conn.execute(query, vals) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_health_snapshot(row) for row in rows]
+
+    # -----------------------------------------------------------------------
     # Agent CRUD
     # -----------------------------------------------------------------------
 
@@ -387,14 +940,34 @@ class Database:
             " color, target_id, custom_data, last_counter)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                data.id, data.name, self._encrypt_session_key(data.session_key), data.listener,
-                data.external_ip, data.internal_ip, data.gmt_offset,
-                data.sleep, data.jitter, data.pid, data.tid, data.arch,
-                int(data.elevated), data.process, int(data.os),
-                data.os_desc, data.domain, data.computer, data.username,
-                _ts(data.create_time), _ts(data.last_tick),
-                data.kill_date, data.tags, data.mark.value,
-                data.color, data.target_id, data.custom_data, data.last_counter,
+                data.id,
+                data.name,
+                self._encrypt_session_key(data.session_key),
+                data.listener,
+                data.external_ip,
+                data.internal_ip,
+                data.gmt_offset,
+                data.sleep,
+                data.jitter,
+                data.pid,
+                data.tid,
+                data.arch,
+                int(data.elevated),
+                data.process,
+                int(data.os),
+                data.os_desc,
+                data.domain,
+                data.computer,
+                data.username,
+                _ts(data.create_time),
+                _ts(data.last_tick),
+                data.kill_date,
+                data.tags,
+                data.mark.value,
+                data.color,
+                data.target_id,
+                data.custom_data,
+                data.last_counter,
             ),
         )
         await self._conn.commit()
@@ -443,9 +1016,14 @@ class Database:
 
     async def agent_update(self, agent_id: str, **fields: Any) -> None:
         _col_map = {
-            "mark": "mark", "last_tick": "last_tick", "color": "color",
-            "tags": "tags", "sleep": "sleep", "jitter": "jitter",
-            "target_id": "target_id", "custom_data": "custom_data",
+            "mark": "mark",
+            "last_tick": "last_tick",
+            "color": "color",
+            "tags": "tags",
+            "sleep": "sleep",
+            "jitter": "jitter",
+            "target_id": "target_id",
+            "custom_data": "custom_data",
         }
         sets, vals = [], []
         for k, v in fields.items():
@@ -459,9 +1037,7 @@ class Database:
             sets.append(f"{col} = ?")
             vals.append(v)
         vals.append(agent_id)
-        await self._conn.execute(
-            f"UPDATE agents SET {', '.join(sets)} WHERE id = ?", vals
-        )
+        await self._conn.execute(f"UPDATE agents SET {', '.join(sets)} WHERE id = ?", vals)
         await self._conn.commit()
 
     async def agent_delete(self, agent_id: str) -> None:
@@ -479,9 +1055,17 @@ class Database:
             " command_line, message_type, message, clear_text, completed)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
-                data.task_id, data.agent_id, int(data.task_type), data.client,
-                _ts(data.start_date), finish_ts, data.command_line,
-                int(data.message_type), data.message, data.clear_text, int(data.completed),
+                data.task_id,
+                data.agent_id,
+                int(data.task_type),
+                data.client,
+                _ts(data.start_date),
+                finish_ts,
+                data.command_line,
+                int(data.message_type),
+                data.message,
+                data.clear_text,
+                int(data.completed),
             ),
         )
         await self._conn.commit()
@@ -525,9 +1109,7 @@ class Database:
             sets.append(f"{k} = ?")
             vals.append(v)
         vals.append(task_id)
-        await self._conn.execute(
-            f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = ?", vals
-        )
+        await self._conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE task_id = ?", vals)
         await self._conn.commit()
 
     async def task_delete(self, task_id: str) -> None:
@@ -565,9 +1147,17 @@ class Database:
             " remote_path, local_path, total_size, recv_size, date, state)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
-                data.file_id, data.agent_id, data.agent_name, data.user,
-                data.computer, data.remote_path, data.local_path,
-                data.total_size, data.recv_size, _ts(data.date), int(data.state),
+                data.file_id,
+                data.agent_id,
+                data.agent_name,
+                data.user,
+                data.computer,
+                data.remote_path,
+                data.local_path,
+                data.total_size,
+                data.recv_size,
+                _ts(data.date),
+                int(data.state),
             ),
         )
         await self._conn.commit()
@@ -609,9 +1199,7 @@ class Database:
             sets.append(f"{k} = ?")
             vals.append(v)
         vals.append(file_id)
-        await self._conn.execute(
-            f"UPDATE downloads SET {', '.join(sets)} WHERE file_id = ?", vals
-        )
+        await self._conn.execute(f"UPDATE downloads SET {', '.join(sets)} WHERE file_id = ?", vals)
         await self._conn.commit()
 
     async def download_delete(self, file_id: str) -> None:
@@ -628,9 +1216,16 @@ class Database:
             " tag, date, source, agent_id, host)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
-                data.cred_id, data.username, self._encrypt_credential_secret(data.secret), data.realm,
-                data.cred_type.value, data.tag, _ts(data.date),
-                data.source, data.agent_id, data.host,
+                data.cred_id,
+                data.username,
+                self._encrypt_credential_secret(data.secret),
+                data.realm,
+                data.cred_type.value,
+                data.tag,
+                _ts(data.date),
+                data.source,
+                data.agent_id,
+                data.host,
             ),
         )
         await self._conn.commit()
@@ -691,9 +1286,17 @@ class Database:
             " tag, info, date, alive, agents)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
-                data.target_id, data.computer, data.domain, data.address,
-                data.os, data.os_desc, data.tag, data.info, _ts(data.date),
-                int(data.alive), json.dumps(data.agents),
+                data.target_id,
+                data.computer,
+                data.domain,
+                data.address,
+                data.os,
+                data.os_desc,
+                data.tag,
+                data.info,
+                _ts(data.date),
+                int(data.alive),
+                json.dumps(data.agents),
             ),
         )
         await self._conn.commit()
@@ -735,9 +1338,7 @@ class Database:
             sets.append(f"{k} = ?")
             vals.append(v)
         vals.append(target_id)
-        await self._conn.execute(
-            f"UPDATE targets SET {', '.join(sets)} WHERE target_id = ?", vals
-        )
+        await self._conn.execute(f"UPDATE targets SET {', '.join(sets)} WHERE target_id = ?", vals)
         await self._conn.commit()
 
     async def target_delete(self, target_id: str) -> None:
@@ -754,10 +1355,18 @@ class Database:
             " thost, tport, use_auth, username, password, create_time)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                data.tunnel_id, data.agent_id, str(data.tunnel_type),
-                data.info, data.lhost, data.lport,
-                data.thost, data.tport, int(data.use_auth),
-                data.username, data.password, _ts(data.create_time),
+                data.tunnel_id,
+                data.agent_id,
+                str(data.tunnel_type),
+                data.info,
+                data.lhost,
+                data.lport,
+                data.thost,
+                data.tport,
+                int(data.use_auth),
+                data.username,
+                data.password,
+                _ts(data.create_time),
             ),
         )
         await self._conn.commit()
@@ -798,9 +1407,7 @@ class Database:
             sets.append(f"{col} = ?")
             vals.append(v)
         vals.append(tunnel_id)
-        await self._conn.execute(
-            f"UPDATE tunnels SET {', '.join(sets)} WHERE tunnel_id = ?", vals
-        )
+        await self._conn.execute(f"UPDATE tunnels SET {', '.join(sets)} WHERE tunnel_id = ?", vals)
         await self._conn.commit()
 
     async def tunnel_delete(self, tunnel_id: str) -> None:

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Run {{ run.run_id }}</h2>
+  <div class="actions">
+    <p>Status: {{ run.status }}</p>
+    {% if run.status == "planned" %}
+    <form method="post" action="/ui/infrastructure/runs/{{ run.run_id }}/apply">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="secondary">Execute Run</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted">Operation: {{ run.operation }} · Target: {{ run.target }}</p>
+  <pre class="mono">{{ run }}</pre>
+</section>
+<section class="card">
+  <h3>Command Transcript</h3>
+  <pre class="mono">{{ run.backend_commands }}</pre>
+</section>
+<section class="card">
+  <h3>Health Checks</h3>
+  <pre class="mono">{{ run.health_checks }}</pre>
+</section>
+<section class="card">
+  <h3>Rollback Data</h3>
+  <pre class="mono">{{ run.rollback_data }}</pre>
+</section>
+{% endblock %}

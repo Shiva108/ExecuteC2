@@ -17,6 +17,7 @@ from executec2.server.database import Database
 from executec2.server.events import EventManager
 from executec2.server.secrets import SecretContext
 from executec2.server.teamserver import TeamserverCore
+from executec2.infrastructure.service import InfrastructureService
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ async def init_app_state(app: FastAPI, config: ExecuteC2Config) -> None:
         "raw_command": RateLimiter(max_requests=10),
         "listener_mutation": RateLimiter(max_requests=10),
         "tunnel_mutation": RateLimiter(max_requests=10),
+        "profile_mutation": RateLimiter(max_requests=20),
+        "infrastructure_mutation": RateLimiter(max_requests=20),
+        "deployment_mutation": RateLimiter(max_requests=20),
     }
     app.state.max_task_payload_bytes = config.server.max_task_payload_bytes
     app.state.operators = {
@@ -67,10 +71,13 @@ async def init_app_state(app: FastAPI, config: ExecuteC2Config) -> None:
     app.state.broker = broker
     app.state.agents: dict = {}
     app.state.listener_instances: dict = {}
+    app.state.infrastructure = InfrastructureService(app.state.db, data_dir)
 
     # Register built-in commands
     from executec2.commands.builtin import register_builtin_commands
+    from executec2.listeners import load_listeners
     register_builtin_commands()
+    load_listeners(config.plugins.listeners)
 
     # Initialize teamserver core and register default agent plugins
     from executec2.agents.python_agent import PythonAgentPlugin
@@ -135,20 +142,26 @@ def create_app(config: ExecuteC2Config) -> FastAPI:
     from executec2.server.routes.chat import router as chat_router
     from executec2.server.routes.credentials import router as credentials_router
     from executec2.server.routes.listeners import router as listeners_router
+    from executec2.server.routes.infrastructure import router as infrastructure_router
     from executec2.server.routes.sync import router as sync_router
     from executec2.server.routes.targets import router as targets_router
     from executec2.server.routes.tasks import router as tasks_router
+    from executec2.server.routes.traffic_profiles import router as traffic_profiles_router
     from executec2.server.routes.tunnels import router as tunnels_router
+    from executec2.server.routes.ui import router as ui_router
 
     app.include_router(auth_router)
     app.include_router(agents_router)
     app.include_router(listeners_router)
+    app.include_router(traffic_profiles_router)
+    app.include_router(infrastructure_router)
     app.include_router(tasks_router)
     app.include_router(credentials_router)
     app.include_router(targets_router)
     app.include_router(tunnels_router)
     app.include_router(sync_router)
     app.include_router(chat_router)
+    app.include_router(ui_router)
 
     return app
 

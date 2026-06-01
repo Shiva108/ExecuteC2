@@ -44,6 +44,57 @@ class ListenerStatus(StrEnum):
     STOPPED = "stopped"
 
 
+class InfraStage(IntEnum):
+    STAGE_0 = 0
+    STAGE_1 = 1
+    STAGE_2 = 2
+    STAGE_3 = 3
+
+
+class InfrastructureAssetType(StrEnum):
+    TEAMSERVER = "teamserver"
+    LISTENER = "listener"
+    CDN_EDGE = "cdn_edge"
+    REDIRECTOR = "redirector"
+    DOMAIN = "domain"
+    CERTIFICATE = "certificate"
+
+
+class DeployTarget(StrEnum):
+    DOCKER_COMPOSE = "docker_compose"
+    TERRAFORM = "terraform"
+
+
+class DeploymentRunStatus(StrEnum):
+    DRAFT = "draft"
+    PLANNED = "planned"
+    APPLYING = "applying"
+    APPLIED = "applied"
+    FAILED = "failed"
+    DRIFTED = "drifted"
+    TEARING_DOWN = "tearing_down"
+    TORN_DOWN = "torn_down"
+    ROTATING = "rotating"
+
+
+class InfraHealthStatus(StrEnum):
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    FAILING = "failing"
+
+
+class TrafficProfileTLSMode(StrEnum):
+    DISABLED = "disabled"
+    OPTIONAL = "optional"
+    REQUIRED = "required"
+
+
+class TrafficProfileKind(StrEnum):
+    EXPLICIT = "explicit"
+    IMPLICIT = "implicit"
+
+
 class CredentialType(StrEnum):
     PASSWORD = "password"
     HASH_NTLM = "hash_ntlm"
@@ -123,6 +174,17 @@ class SyncPacketType(IntEnum):
     TARGETS_UPDATE = 0x88
     TARGETS_DELETE = 0x89
 
+    # Infrastructure
+    INFRA_ASSET_CREATE = 0x91
+    INFRA_ASSET_UPDATE = 0x92
+    INFRA_ASSET_DELETE = 0x93
+    TRAFFIC_PROFILE_CREATE = 0x94
+    TRAFFIC_PROFILE_UPDATE = 0x95
+    TRAFFIC_PROFILE_DELETE = 0x96
+    DEPLOYMENT_RUN_CREATE = 0x97
+    DEPLOYMENT_RUN_UPDATE = 0x98
+    DEPLOYMENT_RUN_DELETE = 0x99
+
 
 class BrokerMsgType(IntEnum):
     EVENT = 0  # Append-only, ordered delivery
@@ -191,9 +253,123 @@ class ListenerData(BaseModel):
     listener_name: str = Field(description="Unique listener instance name")
     listener_type: str = Field(description="Plugin type name (e.g. 'http')")
     config: dict = Field(description="Listener-specific configuration JSON")
+    traffic_profile_id: str = Field(default="")
+    ingress_asset_id: str = Field(default="")
     status: ListenerStatus = Field(default=ListenerStatus.STOPPED)
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
     watermark: str = Field(default="", description="8-char hex watermark linking to agent type")
+
+
+class TrafficProfileData(BaseModel):
+    profile_id: str = Field(description="Unique traffic profile ID")
+    name: str
+    listener_type: str = Field(default="http")
+    stage: InfraStage = Field(default=InfraStage.STAGE_1)
+    profile_kind: TrafficProfileKind = Field(default=TrafficProfileKind.EXPLICIT)
+    callback_hostnames: list[str] = Field(default_factory=list)
+    uris: list[str] = Field(default_factory=list)
+    http_method: str = Field(default="POST")
+    user_agents: list[str] = Field(default_factory=list)
+    host_headers: list[str] = Field(default_factory=list)
+    request_headers: dict[str, str] = Field(default_factory=dict)
+    response_headers: dict[str, str] = Field(default_factory=dict)
+    trust_x_forwarded_for: bool = Field(default=False)
+    page_error: str = Field(default="")
+    page_payload: str = Field(default="")
+    tls_mode: TrafficProfileTLSMode = Field(default=TrafficProfileTLSMode.OPTIONAL)
+    source_listener: str = Field(default="")
+    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("create_time", "update_time", mode="after")
+    @classmethod
+    def _ensure_profile_utc(cls, v: datetime) -> datetime:
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+
+class InfrastructureAssetData(BaseModel):
+    asset_id: str = Field(description="Unique infrastructure asset ID")
+    name: str
+    asset_type: InfrastructureAssetType
+    stage: InfraStage
+    provider: str = Field(default="")
+    parent_asset_id: str = Field(default="")
+    linked_listener_name: str = Field(default="")
+    traffic_profile_id: str = Field(default="")
+    owner: str = Field(default="")
+    tags: list[str] = Field(default_factory=list)
+    config: dict = Field(default_factory=dict)
+    deploy_target: DeployTarget = Field(default=DeployTarget.DOCKER_COMPOSE)
+    health: InfraHealthStatus = Field(default=InfraHealthStatus.UNKNOWN)
+    dns_state: str = Field(default="")
+    certificate_expires_at: datetime | None = Field(default=None)
+    upstream_asset_ids: list[str] = Field(default_factory=list)
+    downstream_asset_ids: list[str] = Field(default_factory=list)
+    stage_owner: str = Field(default="")
+    rendered_checksum: str = Field(default="")
+    last_deployment_run_id: str = Field(default="")
+    last_health_observed_at: datetime | None = Field(default=None)
+    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator(
+        "certificate_expires_at",
+        "last_health_observed_at",
+        "create_time",
+        "update_time",
+        mode="after",
+    )
+    @classmethod
+    def _ensure_asset_utc(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return v
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+
+class DeploymentRunData(BaseModel):
+    run_id: str = Field(description="Unique deployment run ID")
+    asset_id: str
+    operation: str
+    target: DeployTarget
+    status: DeploymentRunStatus
+    created_by: str = Field(default="")
+    artifact_dir: str = Field(default="")
+    plan_data: dict = Field(default_factory=dict)
+    provider_responses: dict = Field(default_factory=dict)
+    error: str = Field(default="")
+    failure_reason: str = Field(default="")
+    failure_phase: str = Field(default="")
+    backend_commands: list[dict] = Field(default_factory=list)
+    execution_log: list[dict] = Field(default_factory=list)
+    health_checks: list[dict] = Field(default_factory=list)
+    rollback_data: dict = Field(default_factory=dict)
+    replacement_asset_id: str = Field(default="")
+    started_at: datetime | None = Field(default=None)
+    finished_at: datetime | None = Field(default=None)
+    timeout_seconds: int = Field(default=90)
+    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("started_at", "finished_at", "create_time", "update_time", mode="after")
+    @classmethod
+    def _ensure_run_utc(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return v
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+
+class InfraHealthSnapshotData(BaseModel):
+    snapshot_id: str = Field(description="Unique health snapshot ID")
+    asset_id: str
+    status: InfraHealthStatus
+    summary: str = Field(default="")
+    details: dict = Field(default_factory=dict)
+    observed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("observed_at", mode="after")
+    @classmethod
+    def _ensure_snapshot_utc(cls, v: datetime) -> datetime:
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
 
 
 class CredentialData(BaseModel):

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}ExecuteC2{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <style>
+      :root {
+        --bg: linear-gradient(135deg, #f4ead8 0%, #e7f0ea 100%);
+        --surface: rgba(255, 255, 255, 0.86);
+        --border: #d0c4ae;
+        --ink: #20313a;
+        --muted: #5f6e71;
+        --accent: #a83c2e;
+        --accent-2: #2f6b63;
+      }
+      body {
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      header, main { max-width: 1180px; margin: 0 auto; padding: 1rem 1.25rem; }
+      header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+      nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 14px 36px rgba(58, 52, 36, 0.08);
+        backdrop-filter: blur(8px);
+      }
+      .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+      input, select, button {
+        font: inherit;
+        padding: 0.6rem 0.75rem;
+        margin: 0.2rem 0;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+      }
+      button {
+        cursor: pointer;
+        background: var(--accent);
+        color: white;
+        border: 0;
+      }
+      .secondary { background: var(--accent-2); }
+      a { color: var(--accent); text-decoration: none; }
+      .muted { color: var(--muted); }
+      .mono { font-family: "IBM Plex Mono", monospace; }
+      .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>ExecuteC2 Infrastructure</h1>
+        {% if claims %}
+        <p class="muted">Signed in as {{ claims.username }}</p>
+        {% endif %}
+      </div>
+      <nav>
+        <a href="/ui/infrastructure">Overview</a>
+        <a href="/ui/infrastructure/runs">Runs</a>
+        <a href="/ui/infrastructure/drift">Drift</a>
+      </nav>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

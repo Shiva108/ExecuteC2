@@ -23,7 +23,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
-DEFAULT_SYNC_CATEGORIES = ["listeners", "agents"]
+DEFAULT_SYNC_CATEGORIES = [
+    "listeners",
+    "agents",
+    "infrastructure",
+    "traffic_profiles",
+    "deployment_runs",
+]
+
 
 async def _get_db_snapshot(db, categories: list[str]) -> dict:
     """Build snapshot dict of current DB state per category."""
@@ -53,12 +60,23 @@ async def _get_db_snapshot(db, categories: list[str]) -> dict:
         elif cat == "chat":
             items = await db.chat_list()
             snapshot[cat] = [i.model_dump(mode="json") for i in items]
+        elif cat == "infrastructure":
+            items = await db.infrastructure_asset_list()
+            snapshot[cat] = [i.model_dump(mode="json") for i in items]
+        elif cat == "traffic_profiles":
+            items = await db.traffic_profile_list()
+            snapshot[cat] = [i.model_dump(mode="json") for i in items]
+        elif cat == "deployment_runs":
+            items = await db.deployment_run_list()
+            snapshot[cat] = [i.model_dump(mode="json") for i in items]
         else:
             snapshot[cat] = []
     return snapshot
 
 
-async def _send_sync_sequence(ws: WebSocket, db, categories: list[str], broker: MessageBroker) -> None:
+async def _send_sync_sequence(
+    ws: WebSocket, db, categories: list[str], broker: MessageBroker
+) -> None:
     """Send SYNC_START → category batches → SYNC_FINISH."""
     await ws.send_bytes(encode_packet(SyncPacketType.SYNC_START, msgpack.packb({})))
     snapshot = await _get_db_snapshot(db, categories)

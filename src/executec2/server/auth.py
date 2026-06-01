@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.responses import Response
 
 from executec2.server.models import OTPEntry, OTPType, TokenClaims
 
@@ -21,6 +22,8 @@ ROLE_OPERATOR = "operator"
 ROLE_ADMIN = "admin"
 
 PROTECTED_COMMANDS = {"upload", "exit"}
+UI_ACCESS_COOKIE = "ec2_access_token"
+UI_CSRF_COOKIE = "ec2_csrf_token"
 
 
 class JWTManager:
@@ -146,14 +149,13 @@ def has_any_role(claims: TokenClaims, allowed_roles: set[str]) -> bool:
 
 
 def require_user(request: Request) -> TokenClaims:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = _extract_access_token(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid authorization header",
             headers={"WWW-Authenticate": "Bearer", "X-Code": "UNAUTHORIZED"},
         )
-    token = auth.removeprefix("Bearer ")
     jwt_manager: JWTManager = request.app.state.jwt_manager
     try:
         claims = jwt_manager.verify_token(token, expected_type="access")
@@ -164,6 +166,13 @@ def require_user(request: Request) -> TokenClaims:
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer", "X-Code": "UNAUTHORIZED"},
         )
+
+
+def _extract_access_token(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth.removeprefix("Bearer ")
+    return request.cookies.get(UI_ACCESS_COOKIE, "")
 
 
 def require_roles(*required_roles: str):
@@ -205,4 +214,49 @@ def enforce_limit(request: Request, limiter_name: str, key: str, detail: str = "
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=detail,
             headers={"X-Code": "RATE_LIMITED"},
+        )
+
+
+def set_ui_auth_cookies(response: Response, access_token: str, csrf_token: str) -> None:
+    response.set_cookie(
+        UI_ACCESS_COOKIE,
+        access_token,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        UI_CSRF_COOKIE,
+        csrf_token,
+        httponly=False,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_ui_auth_cookies(response: Response) -> None:
+    response.delete_cookie(UI_ACCESS_COOKIE, path="/")
+    response.delete_cookie(UI_CSRF_COOKIE, path="/")
+
+
+def verify_csrf(request: Request, submitted_token: str) -> None:
+    cookie_token = request.cookies.get(UI_CSRF_COOKIE, "")
+    header_token = request.headers.get("X-CSRF-Token", "")
+    if not cookie_token or not submitted_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing CSRF token",
+            headers={"X-Code": "FORBIDDEN"},
+        )
+    if not secrets.compare_digest(cookie_token, submitted_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF token",
+            headers={"X-Code": "FORBIDDEN"},
+        )
+    if header_token and not secrets.compare_digest(cookie_token, header_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF header",
+            headers={"X-Code": "FORBIDDEN"},
         )

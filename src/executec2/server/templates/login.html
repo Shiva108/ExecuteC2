@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}ExecuteC2 Login{% endblock %}
+{% block content %}
+<section class="card" style="max-width: 420px; margin: 2rem auto;">
+  <h2>ExecuteC2 Login</h2>
+  {% if error %}<p class="muted">{{ error }}</p>{% endif %}
+  <form method="post" action="/ui/login">
+    <label>Username<br><input name="username" required></label><br>
+    <label>Password<br><input name="password" type="password" required></label><br>
+    <button type="submit">Sign In</button>
+  </form>
+</section>
+{% endblock %}

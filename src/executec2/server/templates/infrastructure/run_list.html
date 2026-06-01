@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Deployment Runs</h2>
+  <table>
+    <thead>
+      <tr><th>Run</th><th>Asset</th><th>Operation</th><th>Status</th><th>Target</th></tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="/ui/infrastructure/runs/{{ run.run_id }}" class="mono">{{ run.run_id[:12] }}</a></td>
+        <td class="mono">{{ run.asset_id[:12] }}</td>
+        <td>{{ run.operation }}</td>
+        <td>{{ run.status }}</td>
+        <td>{{ run.target }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
