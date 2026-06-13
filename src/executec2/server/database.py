@@ -32,6 +32,9 @@ from executec2.server.models import (
     TargetData,
     TaskData,
     TaskType,
+    SessionData,
+    SessionStatus,
+    SessionType,
     TrafficProfileData,
     TrafficProfileKind,
     TrafficProfileTLSMode,
@@ -248,6 +251,18 @@ CREATE TABLE IF NOT EXISTS tunnels (
     username    TEXT NOT NULL DEFAULT '',
     password    TEXT NOT NULL DEFAULT '',
     create_time INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id        TEXT PRIMARY KEY,
+    agent_id          TEXT NOT NULL,
+    session_type      TEXT NOT NULL,
+    status            TEXT NOT NULL,
+    created_by        TEXT NOT NULL DEFAULT '',
+    metadata          TEXT NOT NULL DEFAULT '{}',
+    opened_at         INTEGER NOT NULL,
+    closed_at         INTEGER,
+    last_activity_at  INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS chat (
@@ -1114,6 +1129,72 @@ class Database:
 
     async def task_delete(self, task_id: str) -> None:
         await self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        await self._conn.commit()
+
+    # -----------------------------------------------------------------------
+    # Session CRUD
+    # -----------------------------------------------------------------------
+
+    async def session_insert(self, data: SessionData) -> None:
+        await self._conn.execute(
+            "INSERT INTO sessions (session_id, agent_id, session_type, status, created_by,"
+            " metadata, opened_at, closed_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                data.session_id,
+                data.agent_id,
+                data.session_type.value,
+                data.status.value,
+                data.created_by,
+                json.dumps(data.metadata),
+                _ts(data.opened_at),
+                _maybe_ts(data.closed_at),
+                _ts(data.last_activity_at),
+            ),
+        )
+        await self._conn.commit()
+
+    def _row_to_session(self, row: aiosqlite.Row) -> SessionData:
+        return SessionData(
+            session_id=row["session_id"],
+            agent_id=row["agent_id"],
+            session_type=SessionType(row["session_type"]),
+            status=SessionStatus(row["status"]),
+            created_by=row["created_by"],
+            metadata=json.loads(row["metadata"]),
+            opened_at=_dt(row["opened_at"]),
+            closed_at=_maybe_dt(row["closed_at"]),
+            last_activity_at=_dt(row["last_activity_at"]),
+        )
+
+    async def session_get(self, session_id: str) -> SessionData | None:
+        async with self._conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)) as cur:
+            row = await cur.fetchone()
+        return self._row_to_session(row) if row else None
+
+    async def session_list(self, agent_id: str | None = None) -> list[SessionData]:
+        query = "SELECT * FROM sessions"
+        params: list[Any] = []
+        if agent_id:
+            query += " WHERE agent_id = ?"
+            params.append(agent_id)
+        query += " ORDER BY opened_at DESC"
+        async with self._conn.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_session(row) for row in rows]
+
+    async def session_update(self, session_id: str, **fields: Any) -> None:
+        sets, vals = [], []
+        for key, value in fields.items():
+            if key in {"opened_at", "closed_at", "last_activity_at"} and isinstance(value, datetime):
+                value = _ts(value)
+            elif key == "metadata":
+                value = json.dumps(value)
+            elif hasattr(value, "value"):
+                value = value.value
+            sets.append(f"{key} = ?")
+            vals.append(value)
+        vals.append(session_id)
+        await self._conn.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE session_id = ?", vals)
         await self._conn.commit()
 
     # -----------------------------------------------------------------------

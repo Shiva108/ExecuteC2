@@ -1,7 +1,11 @@
 """Agent-side cryptography: HKDF-SHA256 key derivation + AES-256-GCM."""
 
+import hmac
 import os
+from hashlib import sha256
+from typing import Any
 
+import msgpack
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -34,3 +38,41 @@ class AgentCrypto:
 
     def decrypt_response(self, data: bytes) -> bytes:
         return self.decrypt(self.session_key, data)
+
+    def sign_envelope(
+        self,
+        *,
+        kind: str,
+        seq: int,
+        payload: Any,
+        task_id: str = "",
+        session_id: str = "",
+        channel: str = "",
+    ) -> dict:
+        envelope = {
+            "kind": kind,
+            "seq": int(seq),
+            "task_id": task_id,
+            "session_id": session_id,
+            "channel": channel,
+            "payload": payload,
+        }
+        envelope["mac"] = hmac.new(
+            self.session_key,
+            msgpack.packb(envelope, use_bin_type=True),
+            sha256,
+        ).digest()
+        return envelope
+
+    def verify_envelope(self, envelope: dict) -> bool:
+        mac = envelope.get("mac")
+        if not isinstance(mac, (bytes, bytearray)):
+            return False
+        candidate = dict(envelope)
+        candidate.pop("mac", None)
+        expected = hmac.new(
+            self.session_key,
+            msgpack.packb(candidate, use_bin_type=True),
+            sha256,
+        ).digest()
+        return hmac.compare_digest(bytes(mac), expected)

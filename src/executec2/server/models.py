@@ -110,6 +110,20 @@ class TunnelType(StrEnum):
     LOCAL_PORTFWD = "lportfwd"
 
 
+class SessionType(StrEnum):
+    SHELL = "shell"
+    PORTFWD = "portfwd"
+    SOCKS = "socks"
+
+
+class SessionStatus(StrEnum):
+    OPENING = "opening"
+    ACTIVE = "active"
+    CLOSED = "closed"
+    ERROR = "error"
+    TERMINATED = "terminated"
+
+
 class DownloadState(IntEnum):
     IN_PROGRESS = 0
     COMPLETE = 1
@@ -120,6 +134,7 @@ class DownloadState(IntEnum):
 class OTPType(StrEnum):
     CONNECT = "connect"
     TUNNEL = "tunnel"
+    SESSION = "session"
 
 
 class SyncPacketType(IntEnum):
@@ -159,6 +174,11 @@ class SyncPacketType(IntEnum):
     TUNNEL_CREATE = 0x57
     TUNNEL_UPDATE = 0x58
     TUNNEL_DELETE = 0x59
+
+    # Sessions
+    SESSION_CREATE = 0x5D
+    SESSION_UPDATE = 0x5E
+    SESSION_DELETE = 0x5F
 
     # Console
     AGENT_CONSOLE_OUTPUT = 0x69
@@ -414,6 +434,25 @@ class TunnelData(BaseModel):
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class SessionData(BaseModel):
+    session_id: str = Field(description="Unique session ID")
+    agent_id: str
+    session_type: SessionType
+    status: SessionStatus = Field(default=SessionStatus.OPENING)
+    created_by: str = Field(default="")
+    metadata: dict = Field(default_factory=dict)
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    closed_at: datetime | None = Field(default=None)
+    last_activity_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("opened_at", "closed_at", "last_activity_at", mode="after")
+    @classmethod
+    def _ensure_session_utc(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return v
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+
+
 class DownloadData(BaseModel):
     file_id: str = Field(description="Unique download ID (UUID4 hex)")
     agent_id: str
@@ -498,5 +537,10 @@ class Agent:
         self.pending_tunnel_data: asyncio.Queue[bytes] = asyncio.Queue(maxsize=4096)
         self.running_tasks: dict[str, TaskData] = {}
         self.running_jobs: dict[str, TaskData] = {}
+        self.transport: str = "http"
+        self.listener_master_key: bytes | None = None
+        self.ws = None
+        self.outbound_seq: int = 1
+        self.inbound_seq: int = 0
         self.tick: bool = False
         self.active: bool = True

@@ -29,7 +29,7 @@ class TokenResponse(BaseModel):
 
 
 class OTPRequest(BaseModel):
-    type: str  # "connect" | "tunnel"
+    type: str  # "connect" | "tunnel" | "session"
 
 
 class OTPResponse(BaseModel):

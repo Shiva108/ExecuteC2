@@ -8,6 +8,7 @@ import msgpack
 import pytest
 
 from executec2.listeners.http_listener import HTTPListener, _aes_decrypt, _aes_encrypt, _hkdf_derive
+from executec2.transport import sign_envelope
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,6 +37,7 @@ def make_raw_http_request(
     beat_header_name: str,
     beat_header_value: str,
     extra_headers: dict | None = None,
+    body: bytes = b"",
 ) -> bytes:
     headers = f"POST {path} HTTP/1.1\r\nHost: example.com\r\n"
     headers += f"{beat_header_name}: {beat_header_value}\r\n"
@@ -43,7 +45,7 @@ def make_raw_http_request(
         for k, v in extra_headers.items():
             headers += f"{k}: {v}\r\n"
     headers += "\r\n"
-    return headers.encode()
+    return headers.encode() + body
 
 
 def make_teamserver_mock(agent_id: str = "abcd1234") -> AsyncMock:
@@ -51,6 +53,7 @@ def make_teamserver_mock(agent_id: str = "abcd1234") -> AsyncMock:
     ts.agent_checkin = AsyncMock()
     ts.agent_get_pending_tasks = AsyncMock(return_value=[])
     ts.get_session_key = AsyncMock(return_value=os.urandom(32))
+    ts.submit_results = AsyncMock()
     return ts
 
 
@@ -313,6 +316,33 @@ async def test_process_rejected_checkin_does_not_dequeue_tasks(listener_config):
 
     assert b"HTTP/1.1 200" in response
     listener.teamserver.agent_get_pending_tasks.assert_not_called()
+
+
+async def test_process_submits_signed_results(listener_config):
+    cfg, key = listener_config
+    listener = HTTPListener()
+    listener.config = cfg
+    listener.teamserver = make_teamserver_mock()
+    listener._master_key = key
+    listener._beat_key = _hkdf_derive(key, b"beat", b"beat-encryption")
+
+    session_key = os.urandom(32)
+    listener.teamserver.get_session_key = AsyncMock(return_value=session_key)
+    result_env = sign_envelope(
+        key=session_key,
+        kind="result",
+        seq=1,
+        task_id="task1234",
+        payload={"status": 1, "output": b"ok", "error": ""},
+    )
+    body = _aes_encrypt(session_key, msgpack.packb([result_env]))
+    beat_header_val = make_beat_header(key, "python", "abcd1234", {"hostname": "box", "ctr": 1})
+    raw = make_raw_http_request("/check", "x-beat", beat_header_val, body=body)
+
+    response = await listener._process_http_request(raw)
+
+    assert b"HTTP/1.1 200" in response
+    listener.teamserver.submit_results.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

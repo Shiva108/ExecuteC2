@@ -26,8 +26,6 @@ from executec2.tunnels import TunnelManager
 router = APIRouter(prefix="/api/tunnels", tags=["tunnels"])
 
 def _get_tunnel_manager(request: Request) -> TunnelManager:
-    if not hasattr(request.app.state, "tunnel_manager"):
-        request.app.state.tunnel_manager = TunnelManager()
     return request.app.state.tunnel_manager
 
 

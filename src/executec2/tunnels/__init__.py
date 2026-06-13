@@ -1,19 +1,23 @@
-"""TunnelManager for ExecuteC2 — tracks tunnels and manages asyncio servers."""
+"""TunnelManager for ExecuteC2."""
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import uuid
 
+from executec2.server.models import SessionType
 from executec2.tunnels.socks5 import SOCKS5Server
 
 logger = logging.getLogger(__name__)
 
 
 class TunnelManager:
-    """Manages active tunnels (SOCKS5 + local port forwarding)."""
+    """Manages local tunnel frontends backed by agent WebSocket sessions."""
 
-    def __init__(self):
-        self._tunnels: dict[str, object] = {}  # tunnel_id → server
+    def __init__(self, session_manager=None):
+        self._session_manager = session_manager
+        self._tunnels: dict[str, object] = {}
 
     async def create_socks5(
         self,
@@ -24,7 +28,6 @@ class TunnelManager:
         username: str = "",
         password: str = "",
     ) -> str:
-        """Start a SOCKS5 server. Returns tunnel_id."""
         tunnel_id = uuid.uuid4().hex[:8]
         server = SOCKS5Server(
             tunnel_id=tunnel_id,
@@ -34,10 +37,10 @@ class TunnelManager:
             use_auth=use_auth,
             username=username,
             password=password,
+            data_relay=self._relay_socks if self._session_manager else None,
         )
         await server.start()
         self._tunnels[tunnel_id] = server
-        logger.info("Created SOCKS5 tunnel %s for agent %s on %s:%d", tunnel_id, agent_id, lhost, lport)
         return tunnel_id
 
     async def create_lportfwd(
@@ -48,28 +51,48 @@ class TunnelManager:
         thost: str,
         tport: int,
     ) -> str:
-        """Start a local port-forward TCP server. Returns tunnel_id."""
         tunnel_id = uuid.uuid4().hex[:8]
 
         async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-            try:
-                rem_reader, rem_writer = await asyncio.open_connection(thost, tport)
-                await asyncio.gather(
-                    _relay(reader, rem_writer),
-                    _relay(rem_reader, writer),
-                )
-            except Exception:
-                pass
-            finally:
+            if self._session_manager is None:
                 try:
+                    rem_reader, rem_writer = await asyncio.open_connection(thost, tport)
+                    await asyncio.gather(
+                        _relay(reader, rem_writer),
+                        _relay(rem_reader, writer),
+                    )
+                finally:
                     writer.close()
-                except Exception:
-                    pass
+                return
+
+            session = await self._session_manager.open_session(
+                agent_id=agent_id,
+                session_type=SessionType.PORTFWD,
+                created_by="system",
+                metadata={"target_host": thost, "target_port": int(tport)},
+            )
+            await self._session_manager.bridge_stream(session.session_id, reader, writer)
 
         server = await asyncio.start_server(handler, lhost, lport)
         self._tunnels[tunnel_id] = server
-        logger.info("Created lportfwd tunnel %s: %s:%d → %s:%d", tunnel_id, lhost, lport, thost, tport)
         return tunnel_id
+
+    async def _relay_socks(
+        self,
+        _channel_id: str,
+        agent_id: str,
+        dst_host: str,
+        dst_port: int,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        session = await self._session_manager.open_session(
+            agent_id=agent_id,
+            session_type=SessionType.SOCKS,
+            created_by="system",
+            metadata={"target_host": dst_host, "target_port": int(dst_port)},
+        )
+        await self._session_manager.bridge_stream(session.session_id, reader, writer)
 
     async def stop_tunnel(self, tunnel_id: str) -> bool:
         server = self._tunnels.pop(tunnel_id, None)
@@ -81,13 +104,12 @@ class TunnelManager:
             elif isinstance(server, asyncio.Server):
                 server.close()
                 await server.wait_closed()
-        except Exception:
-            pass
-        logger.info("Stopped tunnel %s", tunnel_id)
+        finally:
+            logger.info("Stopped tunnel %s", tunnel_id)
         return True
 
     async def stop_all(self) -> None:
-        for tunnel_id in list(self._tunnels.keys()):
+        for tunnel_id in list(self._tunnels):
             await self.stop_tunnel(tunnel_id)
 
     def list_tunnel_ids(self) -> list[str]:

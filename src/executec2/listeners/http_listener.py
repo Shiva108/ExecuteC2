@@ -4,17 +4,20 @@ import asyncio
 import base64
 import hashlib
 import logging
-import os
 import re
 import ssl
 from typing import TYPE_CHECKING
 
 import msgpack
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.hashes import SHA256
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from executec2.listeners.base import ListenerPlugin
+from executec2.transport import (
+    aes_decrypt,
+    aes_encrypt,
+    derive_beat_key,
+    hkdf_derive,
+    verify_envelope,
+)
 
 if TYPE_CHECKING:
     from executec2.server.teamserver import TeamserverInterface
@@ -27,18 +30,9 @@ _PAYLOAD_MARKER = b"<<<PAYLOAD_DATA>>>"
 _AGENT_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
-def _hkdf_derive(master_key: bytes, salt: bytes, info: bytes) -> bytes:
-    hkdf = HKDF(algorithm=SHA256(), length=32, salt=salt, info=info)
-    return hkdf.derive(master_key)
-
-
-def _aes_encrypt(key: bytes, plaintext: bytes) -> bytes:
-    nonce = os.urandom(12)
-    return nonce + AESGCM(key).encrypt(nonce, plaintext, None)
-
-
-def _aes_decrypt(key: bytes, data: bytes) -> bytes:
-    return AESGCM(key).decrypt(data[:12], data[12:], None)
+_hkdf_derive = hkdf_derive
+_aes_encrypt = aes_encrypt
+_aes_decrypt = aes_decrypt
 
 
 def _compute_cert_fingerprint_sha256(cert_path: str) -> str:
@@ -101,7 +95,9 @@ class HTTPListener(ListenerPlugin):
         self.teamserver = teamserver
         master_key = bytes.fromhex(self.config["encrypt_key"])
         self._master_key = master_key
-        self._beat_key = _hkdf_derive(master_key, b"beat", b"beat-encryption")
+        self._beat_key = derive_beat_key(master_key)
+        if hasattr(teamserver, "register_listener_master_key"):
+            teamserver.register_listener_master_key(self.config["listener_name"], master_key)
 
         host = self.config["host_bind"]
         port = self.config["port_bind"]
@@ -151,6 +147,7 @@ class HTTPListener(ListenerPlugin):
                 return self._error_response()
 
             header_section = raw[:header_end].decode("utf-8", errors="replace")
+            body = raw[header_end + 4 :]
             lines = header_section.split("\r\n")
             request_line = lines[0]
             method, path, _ = request_line.split(" ", 2)
@@ -223,6 +220,30 @@ class HTTPListener(ListenerPlugin):
                     external_ip=external_ip,
                     listener_name=self.config.get("listener_name", ""),
                 )
+
+                if accepted and body:
+                    session_key = await self.teamserver.get_session_key(agent_id)
+                    try:
+                        result_payload = msgpack.unpackb(_aes_decrypt(session_key, body), raw=False)
+                    except Exception:
+                        return self._error_response()
+                    result_items = result_payload if isinstance(result_payload, list) else []
+                    verified_results = []
+                    for item in result_items:
+                        if not isinstance(item, dict):
+                            continue
+                        if not verify_envelope(session_key, item):
+                            continue
+                        if item.get("kind") != "result":
+                            continue
+                        verified_results.append(
+                            {
+                                "task_id": item.get("task_id", ""),
+                                "payload": item.get("payload", {}),
+                            }
+                        )
+                    if verified_results:
+                        await self.teamserver.submit_results(agent_id, verified_results)
 
                 # Get pending tasks
                 task_bytes_list = await self.teamserver.agent_get_pending_tasks(agent_id) if accepted else []

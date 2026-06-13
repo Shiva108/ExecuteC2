@@ -26,6 +26,7 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 DEFAULT_SYNC_CATEGORIES = [
     "listeners",
     "agents",
+    "sessions",
     "infrastructure",
     "traffic_profiles",
     "deployment_runs",
@@ -62,6 +63,9 @@ async def _get_db_snapshot(db, categories: list[str]) -> dict:
             snapshot[cat] = [i.model_dump(mode="json") for i in items]
         elif cat == "infrastructure":
             items = await db.infrastructure_asset_list()
+            snapshot[cat] = [i.model_dump(mode="json") for i in items]
+        elif cat == "sessions":
+            items = await db.session_list()
             snapshot[cat] = [i.model_dump(mode="json") for i in items]
         elif cat == "traffic_profiles":
             items = await db.traffic_profile_list()

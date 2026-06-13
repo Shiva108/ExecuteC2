@@ -15,9 +15,11 @@ from executec2.server.auth import JWTManager, OTPStore, RateLimiter
 from executec2.server.broker import MessageBroker
 from executec2.server.database import Database
 from executec2.server.events import EventManager
+from executec2.server.session_manager import SessionManager
 from executec2.server.secrets import SecretContext
 from executec2.server.teamserver import TeamserverCore
 from executec2.infrastructure.service import InfrastructureService
+from executec2.tunnels import TunnelManager
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +77,21 @@ async def init_app_state(app: FastAPI, config: ExecuteC2Config) -> None:
 
     # Register built-in commands
     from executec2.commands.builtin import register_builtin_commands
+    from executec2.agents import load_agents
     from executec2.listeners import load_listeners
     register_builtin_commands()
-    load_listeners(config.plugins.listeners)
+    load_listeners(
+        list(
+            dict.fromkeys(
+                config.plugins.listeners
+                + [
+                    "executec2.listeners.http_listener",
+                    "executec2.listeners.websocket_listener",
+                ]
+            )
+        )
+    )
+    load_agents(list(dict.fromkeys(config.plugins.agents + ["executec2.agents.python_agent"])))
 
     # Initialize teamserver core and register default agent plugins
     from executec2.agents.python_agent import PythonAgentPlugin
@@ -90,12 +104,22 @@ async def init_app_state(app: FastAPI, config: ExecuteC2Config) -> None:
     teamserver.register_agent_plugin("python", PythonAgentPlugin())
     await teamserver.start()
     app.state.teamserver = teamserver
+    app.state.session_manager = SessionManager(
+        app.state.db,
+        broker,
+        app.state.event_manager,
+        app.state.agents,
+    )
+    teamserver.session_manager = app.state.session_manager
+    app.state.tunnel_manager = TunnelManager(app.state.session_manager)
 
 
 async def teardown_app_state(app: FastAPI) -> None:
     """Shutdown application state. Called by lifespan and directly in tests."""
     if hasattr(app.state, "teamserver") and app.state.teamserver:
         await app.state.teamserver.stop()
+    if hasattr(app.state, "tunnel_manager") and app.state.tunnel_manager:
+        await app.state.tunnel_manager.stop_all()
     if app.state.broker:
         await app.state.broker.stop()
     await app.state.event_manager.stop()
@@ -144,6 +168,7 @@ def create_app(config: ExecuteC2Config) -> FastAPI:
     from executec2.server.routes.listeners import router as listeners_router
     from executec2.server.routes.infrastructure import router as infrastructure_router
     from executec2.server.routes.sync import router as sync_router
+    from executec2.server.routes.sessions import router as sessions_router
     from executec2.server.routes.targets import router as targets_router
     from executec2.server.routes.tasks import router as tasks_router
     from executec2.server.routes.traffic_profiles import router as traffic_profiles_router
@@ -160,6 +185,7 @@ def create_app(config: ExecuteC2Config) -> FastAPI:
     app.include_router(targets_router)
     app.include_router(tunnels_router)
     app.include_router(sync_router)
+    app.include_router(sessions_router)
     app.include_router(chat_router)
     app.include_router(ui_router)
 

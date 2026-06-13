@@ -6,6 +6,7 @@ import os
 import pytest
 
 from agent.crypto import AgentCrypto
+from executec2.transport import derive_session_key, sign_envelope, verify_envelope
 
 # ---------------------------------------------------------------------------
 # AgentCrypto
@@ -70,6 +71,30 @@ def test_different_masters_different_keys():
     c2 = AgentCrypto(m2, "aabbccdd")
     assert c1.session_key != c2.session_key
     assert c1.beat_key != c2.beat_key
+
+
+def test_server_and_agent_session_key_derivation_match():
+    master_bytes = os.urandom(32)
+    master_hex = master_bytes.hex()
+    agent_id = "aabbccdd"
+    crypto = AgentCrypto(master_hex, agent_id)
+    assert crypto.session_key == derive_session_key(master_bytes, agent_id)
+
+
+def test_envelope_sign_verify_parity():
+    master = os.urandom(32).hex()
+    crypto = AgentCrypto(master, "aabbccdd")
+    envelope = crypto.sign_envelope(kind="result", seq=1, task_id="task1", payload={"status": 1})
+    assert crypto.verify_envelope(envelope)
+    assert verify_envelope(crypto.session_key, envelope)
+    server_env = sign_envelope(
+        key=crypto.session_key,
+        kind="task",
+        seq=2,
+        task_id="task2",
+        payload={"cmd": 22, "args": {}},
+    )
+    assert crypto.verify_envelope(server_env)
 
 
 # ---------------------------------------------------------------------------

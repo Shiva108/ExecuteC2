@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from executec2.agents.python_agent import PythonAgentPlugin
-from executec2.server.models import AgentMark
+from executec2.server.models import AgentMark, TaskData
 
 # ---------------------------------------------------------------------------
 # PythonAgentPlugin
@@ -129,6 +129,7 @@ async def teamserver_fixture():
 
     core = TeamserverCore(db=db, broker=broker, event_manager=event_manager, agents=agents)
     core.register_agent_plugin("python", PythonAgentPlugin())
+    core.register_listener_master_key("test-listener", b"\x11" * 32)
     await core.start()
 
     yield core, agents
@@ -171,6 +172,32 @@ async def test_agent_checkin_updates_tick(teamserver_fixture):
     assert second_tick >= first_tick
 
 
+async def test_agent_checkin_refreshes_sleep_and_jitter(teamserver_fixture):
+    core, agents = teamserver_fixture
+    register = {
+        "hostname": "BOX",
+        "username": "user",
+        "domain": "",
+        "internal_ip": "10.0.0.1",
+        "os": 2,
+        "os_desc": "Linux",
+        "arch": "x64",
+        "pid": 100,
+        "process": "python3",
+        "elevated": False,
+        "sleep": 5,
+        "jitter": 0,
+        "ctr": 1,
+    }
+    await core.agent_checkin("aabbccdd", "python", register, "", "test-listener")
+
+    heartbeat = {"ctr": 2, "sleep": 30, "jitter": 15}
+    await core.agent_checkin("aabbccdd", "python", heartbeat, "", "test-listener")
+
+    assert agents["aabbccdd"].data.sleep == 30
+    assert agents["aabbccdd"].data.jitter == 15
+
+
 async def test_agent_checkin_unknown_type(teamserver_fixture):
     core, agents = teamserver_fixture
     # Should not raise, just log a warning
@@ -194,6 +221,38 @@ async def test_get_pending_tasks_unknown_agent(teamserver_fixture):
     core, _ = teamserver_fixture
     tasks = await core.agent_get_pending_tasks("unknown")
     assert tasks == []
+
+
+async def test_submit_results_updates_task(teamserver_fixture):
+    core, _ = teamserver_fixture
+    beat = {
+        "hostname": "BOX",
+        "username": "user",
+        "domain": "",
+        "internal_ip": "10.0.0.1",
+        "os": 2,
+        "os_desc": "Linux",
+        "arch": "x64",
+        "pid": 100,
+        "process": "python3",
+        "elevated": False,
+        "sleep": 5,
+        "jitter": 0,
+        "ctr": 1,
+    }
+    await core.agent_checkin("aabbccdd", "python", beat, "", "test-listener")
+    task = TaskData(task_id="task1234", agent_id="aabbccdd")
+    await core._db.task_insert(task)
+
+    await core.submit_results(
+        "aabbccdd",
+        [{"task_id": "task1234", "payload": {"status": 1, "output": b"ok", "error": ""}}],
+    )
+
+    updated = await core._db.task_get("task1234")
+    assert updated is not None
+    assert updated.completed is True
+    assert updated.message == "ok"
 
 
 async def test_get_session_key(teamserver_fixture):
