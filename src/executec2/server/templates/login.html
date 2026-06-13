@@ -1,13 +1,33 @@
 {% extends "base.html" %}
 {% block title %}ExecuteC2 Login{% endblock %}
+{% block header_title %}Operator Access{% endblock %}
+{% block hero_copy %}
+<p class="hero-copy">
+  Sign in to the ExecuteC2 operator surface. Session access remains scoped to authorized red team operations.
+</p>
+{% endblock %}
 {% block content %}
-<section class="card" style="max-width: 420px; margin: 2rem auto;">
-  <h2>ExecuteC2 Login</h2>
-  {% if error %}<p class="muted">{{ error }}</p>{% endif %}
-  <form method="post" action="/ui/login">
-    <label>Username<br><input name="username" required></label><br>
-    <label>Password<br><input name="password" type="password" required></label><br>
-    <button type="submit">Sign In</button>
-  </form>
+<section class="login-shell">
+  <div class="login-grid">
+    <article class="card login-copy">
+      <p class="eyebrow">Access</p>
+      <h2>ExecuteC2 Login</h2>
+      <p class="muted">
+        This interface manages listeners, deployments, and operator-visible infrastructure state.
+      </p>
+      <p class="muted">
+        Only use this system for legitimate assessments with explicit written authorization.
+      </p>
+    </article>
+    <section class="card">
+      <h2 style="margin-top: 0;">Sign In</h2>
+      {% if error %}<p class="muted">{{ error }}</p>{% endif %}
+      <form method="post" action="/ui/login">
+        <label>Username<br><input name="username" required></label><br>
+        <label>Password<br><input name="password" type="password" required></label><br>
+        <button type="submit">Sign In</button>
+      </form>
+    </section>
+  </div>
 </section>
 {% endblock %}

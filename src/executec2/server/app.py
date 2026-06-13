@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from executec2.config.schema import ExecuteC2Config
 from executec2.server.auth import JWTManager, OTPStore, RateLimiter
@@ -142,6 +143,11 @@ def create_app(config: ExecuteC2Config) -> FastAPI:
         title="ExecuteC2",
         version="0.1.0",
         lifespan=_make_lifespan(config),
+    )
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(Path(__file__).resolve().parent / "static")),
+        name="static",
     )
 
     if config.server.operator_ui_origins:

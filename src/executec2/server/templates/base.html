@@ -56,12 +56,49 @@
       pre { white-space: pre-wrap; word-break: break-word; }
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+      .brand-lockup { display: flex; flex-direction: column; gap: 0.2rem; }
+      .eyebrow {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.78rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--accent-2);
+        margin: 0;
+      }
+      .brand-lockup h1 { margin: 0; }
+      .banner-wrap { max-width: 1180px; margin: 0 auto; padding: 0 1.25rem 0.5rem; }
+      .banner {
+        display: block;
+        width: 100%;
+        border-radius: 24px;
+        border: 1px solid rgba(208, 196, 174, 0.85);
+        box-shadow: 0 18px 40px rgba(58, 52, 36, 0.12);
+        background: rgba(255, 255, 255, 0.42);
+      }
+      .hero-copy {
+        margin: 0.85rem 0 0;
+        max-width: 52rem;
+        color: var(--muted);
+      }
+      .login-shell { max-width: 960px; margin: 1.6rem auto 0; }
+      .login-grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.8fr);
+        align-items: start;
+      }
+      .login-copy h2 { margin-top: 0; }
+      @media (max-width: 860px) {
+        header { flex-direction: column; align-items: flex-start; }
+        .login-grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
     <header>
-      <div>
-        <h1>ExecuteC2 Infrastructure</h1>
+      <div class="brand-lockup">
+        <p class="eyebrow">ExecuteC2</p>
+        <h1>{% block header_title %}Infrastructure Control{% endblock %}</h1>
         {% if claims %}
         <p class="muted">Signed in as {{ claims.username }}</p>
         {% endif %}
@@ -72,6 +109,18 @@
         <a href="/ui/infrastructure/drift">Drift</a>
       </nav>
     </header>
+    <section class="banner-wrap">
+      <img
+        class="banner"
+        src="/static/executec2-banner.svg"
+        alt="ExecuteC2 schematic banner"
+      >
+      {% block hero_copy %}
+      <p class="hero-copy">
+        Operator infrastructure, task routing, and encrypted transport surfaces in one control plane.
+      </p>
+      {% endblock %}
+    </section>
     <main>
       {% block content %}{% endblock %}
     </main>

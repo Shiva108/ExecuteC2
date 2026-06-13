@@ -1,5 +1,7 @@
 # ExecuteC2
 
+![ExecuteC2 banner](src/executec2/server/static/executec2-banner.svg)
+
 **Version: 0.9** | Python 3.12+ | FastAPI | asyncio | SQLite
 
 A Python-based C2 (command and control) teamserver for authorized red team operations, built on a Python/FastAPI/asyncio stack.

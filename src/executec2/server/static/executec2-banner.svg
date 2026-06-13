@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 420" role="img" aria-labelledby="title desc">
+  <title id="title">ExecuteC2 banner</title>
+  <desc id="desc">Schematic style banner for ExecuteC2 with connected nodes, transport lines, and a command and control wordmark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f4ead8"/>
+      <stop offset="55%" stop-color="#e8efe7"/>
+      <stop offset="100%" stop-color="#d7e1dc"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffdf8" stop-opacity="0.94"/>
+      <stop offset="100%" stop-color="#f5eee0" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2f6b63"/>
+      <stop offset="50%" stop-color="#a83c2e"/>
+      <stop offset="100%" stop-color="#20313a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#6d614a" flood-opacity="0.18"/>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#8ea49e" stroke-opacity="0.18" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="420" rx="32" fill="url(#bg)"/>
+  <rect width="1600" height="420" rx="32" fill="url(#grid)"/>
+
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M86 86 H520 L620 186 H840" stroke="#2f6b63" stroke-width="4" stroke-opacity="0.48"/>
+    <path d="M130 336 H404 L520 220 H720" stroke="#a83c2e" stroke-width="4" stroke-opacity="0.42"/>
+    <path d="M1090 110 H1320 L1450 72" stroke="#20313a" stroke-width="4" stroke-opacity="0.28"/>
+    <path d="M990 322 H1242 L1388 250" stroke="#2f6b63" stroke-width="4" stroke-opacity="0.28"/>
+    <path d="M1180 178 H1490" stroke="#a83c2e" stroke-width="3" stroke-opacity="0.22" stroke-dasharray="10 14"/>
+  </g>
+
+  <g fill="#20313a" fill-opacity="0.84">
+    <circle cx="86" cy="86" r="10"/>
+    <circle cx="130" cy="336" r="10"/>
+    <circle cx="520" cy="86" r="10"/>
+    <circle cx="520" cy="220" r="10"/>
+    <circle cx="840" cy="186" r="10"/>
+    <circle cx="1090" cy="110" r="10"/>
+    <circle cx="990" cy="322" r="10"/>
+    <circle cx="1490" cy="178" r="10"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="430" y="68" width="740" height="284" rx="28" fill="url(#panel)" stroke="#d0c4ae" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(500 106)">
+    <g>
+      <path d="M164 40 228 72 228 136 164 168 100 136 100 72Z" fill="#20313a"/>
+      <path d="M164 52 214 77 214 131 164 156 114 131 114 77Z" fill="#f4ead8"/>
+      <path d="M164 65 201 84 201 124 164 143 127 124 127 84Z" fill="url(#signal)"/>
+      <path d="M164 84 183 94 183 114 164 124 145 114 145 94Z" fill="#fffdf8"/>
+    </g>
+
+    <g transform="translate(270 0)">
+      <text x="0" y="76" fill="#20313a" font-size="72" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="2">ExecuteC2</text>
+      <text x="2" y="118" fill="#5f6e71" font-size="20" font-weight="600" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" letter-spacing="4">TASKING / TRANSPORT / OPERATOR SYNC</text>
+      <rect x="0" y="142" width="280" height="12" rx="6" fill="#d9d0c3"/>
+      <rect x="0" y="142" width="194" height="12" rx="6" fill="url(#signal)"/>
+      <text x="0" y="192" fill="#2f6b63" font-size="18" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="2">AUTHORIZED RED TEAM INFRASTRUCTURE</text>
+    </g>
+  </g>
+
+  <g transform="translate(1220 94)">
+    <rect width="232" height="194" rx="22" fill="#f8f3ea" fill-opacity="0.86" stroke="#d0c4ae" stroke-width="1.5"/>
+    <text x="28" y="44" fill="#5f6e71" font-size="15" font-weight="700" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" letter-spacing="2">CONTROL PLANE</text>
+    <g transform="translate(28 72)" stroke="#20313a" stroke-width="2.4" fill="none" stroke-linecap="round">
+      <path d="M0 20 H54"/>
+      <path d="M54 20 86 0 122 0 152 20 176 20"/>
+      <path d="M54 20 86 40 122 40 152 20"/>
+      <circle cx="0" cy="20" r="6" fill="#2f6b63" stroke="none"/>
+      <circle cx="54" cy="20" r="6" fill="#a83c2e" stroke="none"/>
+      <circle cx="86" cy="0" r="6" fill="#20313a" stroke="none"/>
+      <circle cx="86" cy="40" r="6" fill="#20313a" stroke="none"/>
+      <circle cx="122" cy="0" r="6" fill="#2f6b63" stroke="none"/>
+      <circle cx="122" cy="40" r="6" fill="#2f6b63" stroke="none"/>
+      <circle cx="152" cy="20" r="6" fill="#a83c2e" stroke="none"/>
+      <circle cx="176" cy="20" r="6" fill="#20313a" stroke="none"/>
+    </g>
+    <text x="28" y="148" fill="#20313a" font-size="16" font-weight="600" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Encrypted listeners</text>
+    <text x="28" y="174" fill="#20313a" font-size="16" font-weight="600" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Real-time operator state</text>
+  </g>
+</svg>

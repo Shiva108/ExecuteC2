@@ -74,10 +74,18 @@ async def test_ui_login_sets_auth_and_csrf_cookies(client):
     resp = await client.get("/ui/login")
     assert resp.status_code == 200
     assert "ExecuteC2 Login" in resp.text
+    assert "/static/executec2-banner.svg" in resp.text
 
     csrf_token = await _ui_login(client)
     assert client.cookies.get("ec2_access_token")
     assert csrf_token
+
+
+async def test_banner_asset_is_served(client):
+    resp = await client.get("/static/executec2-banner.svg")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/svg+xml"
+    assert "ExecuteC2 banner" in resp.text
 
 
 async def test_stage_page_requires_auth_and_renders_assets(client):
