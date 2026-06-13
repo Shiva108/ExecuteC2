@@ -1,6 +1,6 @@
 # ExecuteC2
 
-**Version: 0.0** | Python 3.12+ | FastAPI | asyncio | SQLite
+**Version: 0.9** | Python 3.12+ | FastAPI | asyncio | SQLite
 
 A Python-based C2 (command and control) teamserver for authorized red team operations, built on a Python/FastAPI/asyncio stack.
 
@@ -13,12 +13,13 @@ A Python-based C2 (command and control) teamserver for authorized red team opera
 ExecuteC2 provides a full teamserver with:
 
 - **HTTPS REST API** — JWT-authenticated endpoints for agents, listeners, tasks, credentials, targets, and tunnels
-- **WebSocket sync** — Real-time operator client synchronization via a fan-out message broker
+- **Operator WebSocket sync** — Real-time operator client synchronization via a fan-out message broker
+- **Agent transports** — encrypted HTTP polling and persistent WebSocket agent communication
 - **Plugin system** — Listener and agent plugins loaded via Python `importlib` with defined ABCs
 - **Agent lifecycle** — State machine tracking Active → Inactive → Disconnect → Terminated transitions
-- **Task/job routing** — Async task queue with per-agent pending task dispatch
-- **SOCKS5 tunneling** — asyncio-based SOCKS5 proxy and port-forwarding support
-- **Transport encryption** — AES-GCM per-session keys between listener and agent
+- **Task/result routing** — Async task dispatch with end-to-end result ingestion and task state updates
+- **Interactive sessions** — shell, SOCKS, and local port-forward workflows over a multiplexed session backbone
+- **Transport integrity** — AES-GCM encryption plus signed envelopes for task, result, and session frames
 - **SQLite persistence** — All state stored in WAL-mode SQLite via `aiosqlite`
 
 ---
@@ -39,32 +40,37 @@ ExecuteC2/
 │   │   ├── broker.py       # MessageBroker: asyncio fan-out to operator clients
 │   │   ├── events.py       # EventManager: internal event bus
 │   │   ├── auth.py         # JWTManager, OTPStore, RateLimiter
+│   │   ├── session_manager.py # Interactive session lifecycle + stream relay
 │   │   ├── models.py       # Pydantic + dataclass models (Agent, Task, etc.)
 │   │   └── routes/         # FastAPI routers
 │   │       ├── auth.py     # POST /api/auth/login, /refresh, /logout
 │   │       ├── agents.py   # Agent CRUD + task submission
 │   │       ├── listeners.py# Listener start/stop/list
+│   │       ├── sessions.py # Shell/session APIs + session WS attach
 │   │       ├── tasks.py    # Task list/output
 │   │       ├── credentials.py
 │   │       ├── targets.py
 │   │       ├── tunnels.py
 │   │       ├── sync.py     # WebSocket /ws/sync endpoint
 │   │       └── chat.py     # Operator chat
+│   ├── transport.py        # Shared HKDF/AES/HMAC transport helpers
 │   ├── agents/
 │   │   ├── base.py         # AgentPlugin ABC
 │   │   └── python_agent.py # Built-in Python agent plugin
 │   ├── listeners/
 │   │   ├── base.py         # ListenerPlugin ABC
 │   │   └── http_listener.py# HTTP/S listener plugin
+│   │   └── websocket_listener.py # Persistent WebSocket agent listener
 │   ├── commands/
 │   │   ├── registry.py     # Command registry + dispatch
 │   │   └── builtin/        # Built-in command implementations
 │   └── tunnels/
-│       └── socks5.py       # SOCKS5 proxy implementation
+│       └── socks5.py       # SOCKS5 frontend for agent-backed sessions
 │
 ├── agent/                  # Standalone agent payload (runs on target)
-│   ├── main.py             # Agent entry point + check-in loop
+│   ├── main.py             # Agent entry point + HTTP / WebSocket runtime
 │   ├── connector_http.py   # HTTP transport connector
+│   ├── connector_ws.py     # WebSocket transport connector
 │   ├── crypto.py           # AES-GCM encryption helpers
 │   └── commands/           # Agent-side command handlers
 │
@@ -139,6 +145,7 @@ operators:
 plugins:
   listeners:
     - "executec2.listeners.http_listener"
+    - "executec2.listeners.websocket_listener"
   agents:
     - "executec2.agents.python_agent"
 
@@ -168,6 +175,19 @@ uv run executec2 --config config.yaml --host 127.0.0.1 --port 8443
 ```
 
 The server starts an HTTPS API + WebSocket endpoint at `https://<host>:<port>`.
+
+### Available listener transports
+
+- `http` — encrypted polling transport with signed result envelopes
+- `websocket` — persistent low-latency agent transport with session multiplexing
+
+### Session APIs
+
+- `POST /api/agents/{agent_id}/shell` — create a shell session
+- `GET /api/sessions` — list active and recent sessions
+- `POST /api/sessions/{session_id}/stop` — terminate a session
+- `POST /api/auth/otp` with `type=session` — mint an OTP for session attachment
+- `GET /api/sessions/ws?otp=...&session_id=...` — operator bidirectional session socket
 
 ### CLI flags
 
@@ -227,7 +247,50 @@ Key fields:
 | `server.access_token_ttl`  | `24`      | Access token lifetime (hours)          |
 | `server.refresh_token_ttl` | `168`     | Refresh token lifetime (hours, 7 days) |
 | `server.auth_rate_limit`   | `10`      | Max auth attempts per IP per minute    |
+| `server.max_task_payload_bytes` | `8388608` | Max serialized task payload size |
 | `operators`                | —         | `username: password` map               |
+
+Listener-specific config examples:
+
+```yaml
+listeners:
+  - listener_name: "http1"
+    listener_type: "http"
+    config:
+      host_bind: "0.0.0.0"
+      port_bind: 8080
+      callback_addresses: ["c2.example.com"]
+      encrypt_key: "<64 hex chars>"
+      uris: ["/check"]
+      beat_header: "X-Beat"
+
+  - listener_name: "ws1"
+    listener_type: "websocket"
+    config:
+      host_bind: "0.0.0.0"
+      port_bind: 8443
+      callback_addresses: ["c2.example.com:8443"]
+      encrypt_key: "<64 hex chars>"
+      path: "/agent/ws"
+      ssl: true
+      ssl_cert: "./cert.pem"
+      ssl_key: "./key.pem"
+```
+
+## Testing status
+
+Current baseline on `main`:
+
+```text
+265 passed, 9 xfailed
+```
+
+The `xfail` cases are known placeholders for legacy or not-yet-finished scenarios:
+
+- Phase 9 HTTP check-in integration placeholders
+- Phase 10 task manager / job progress placeholders
+- Phase 10 task routing via REST placeholder
+- Phase 11 tunnel stop cleanup placeholder
 
 ---
 
