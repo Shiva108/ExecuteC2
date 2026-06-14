@@ -1,89 +1,85 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 420" role="img" aria-labelledby="title desc">
   <title id="title">ExecuteC2 banner</title>
-  <desc id="desc">Schematic style banner for ExecuteC2 with connected nodes, transport lines, and a command and control wordmark.</desc>
+  <desc id="desc">Dark neon ExecuteC2 banner with a hexagonal command icon and bold operator control headline.</desc>
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#f4ead8"/>
-      <stop offset="55%" stop-color="#e8efe7"/>
-      <stop offset="100%" stop-color="#d7e1dc"/>
+      <stop offset="0%" stop-color="#121821"/>
+      <stop offset="100%" stop-color="#0c1119"/>
     </linearGradient>
-    <linearGradient id="panel" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fffdf8" stop-opacity="0.94"/>
-      <stop offset="100%" stop-color="#f5eee0" stop-opacity="0.82"/>
+    <linearGradient id="hexGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#39d5cd"/>
+      <stop offset="100%" stop-color="#1f7f8f"/>
     </linearGradient>
-    <linearGradient id="signal" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#2f6b63"/>
-      <stop offset="50%" stop-color="#a83c2e"/>
-      <stop offset="100%" stop-color="#20313a"/>
+    <linearGradient id="beam" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff6671"/>
+      <stop offset="100%" stop-color="#ff304b"/>
     </linearGradient>
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#6d614a" flood-opacity="0.18"/>
+    <filter id="cyanBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8"/>
     </filter>
-    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#8ea49e" stroke-opacity="0.18" stroke-width="1"/>
-    </pattern>
+    <filter id="redBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
   </defs>
 
-  <rect width="1600" height="420" rx="32" fill="url(#bg)"/>
-  <rect width="1600" height="420" rx="32" fill="url(#grid)"/>
+  <rect width="1600" height="420" rx="36" fill="url(#bg)"/>
+  <rect x="2" y="2" width="1596" height="416" rx="34" fill="none" stroke="#2a313e" stroke-width="2"/>
 
-  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M86 86 H520 L620 186 H840" stroke="#2f6b63" stroke-width="4" stroke-opacity="0.48"/>
-    <path d="M130 336 H404 L520 220 H720" stroke="#a83c2e" stroke-width="4" stroke-opacity="0.42"/>
-    <path d="M1090 110 H1320 L1450 72" stroke="#20313a" stroke-width="4" stroke-opacity="0.28"/>
-    <path d="M990 322 H1242 L1388 250" stroke="#2f6b63" stroke-width="4" stroke-opacity="0.28"/>
-    <path d="M1180 178 H1490" stroke="#a83c2e" stroke-width="3" stroke-opacity="0.22" stroke-dasharray="10 14"/>
+  <g transform="translate(66 44)">
+    <path d="M136 10 265 84 265 232 136 306 7 232 7 84Z" fill="#1a212c" stroke="#2d3b48" stroke-width="4"/>
+    <path d="M136 16 259 87 259 229 136 300 13 229 13 87Z" fill="none" stroke="#39d5cd" stroke-opacity="0.26" stroke-width="3"/>
+
+    <g filter="url(#redBlur)" opacity="0.95">
+      <path d="M24 58 126 160" stroke="#ff4a5e" stroke-width="11" stroke-linecap="round"/>
+    </g>
+    <path d="M24 58 126 160" stroke="url(#beam)" stroke-width="9" stroke-linecap="round"/>
+    <path d="M110 144 126 160 112 177" fill="none" stroke="#ff6878" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g transform="translate(135 160)">
+      <g filter="url(#cyanBlur)" opacity="0.95">
+        <circle cx="0" cy="0" r="27" fill="#30d6ca"/>
+        <circle cx="-58" cy="0" r="10" fill="#30d6ca"/>
+        <circle cx="61" cy="11" r="10" fill="#30d6ca"/>
+        <circle cx="-33" cy="50" r="10" fill="#30d6ca"/>
+        <circle cx="31" cy="53" r="10" fill="#30d6ca"/>
+        <circle cx="50" cy="-37" r="10" fill="#30d6ca"/>
+      </g>
+      <g stroke="#2b9ba3" stroke-width="3.5" stroke-linecap="round">
+        <path d="M0 0 -58 0"/>
+        <path d="M0 0 61 11"/>
+        <path d="M0 0 -33 50"/>
+        <path d="M0 0 31 53"/>
+        <path d="M0 0 50 -37"/>
+      </g>
+      <g fill="#38ddd1">
+        <circle cx="0" cy="0" r="24"/>
+        <circle cx="-58" cy="0" r="9"/>
+        <circle cx="61" cy="11" r="9"/>
+        <circle cx="-33" cy="50" r="9"/>
+        <circle cx="31" cy="53" r="9"/>
+        <circle cx="50" cy="-37" r="9"/>
+      </g>
+      <g stroke="#ff5c6e" stroke-width="4" stroke-linecap="round">
+        <path d="M-8 -10 9 8"/>
+        <path d="M10 -9 -10 9"/>
+      </g>
+    </g>
   </g>
 
-  <g fill="#20313a" fill-opacity="0.84">
-    <circle cx="86" cy="86" r="10"/>
-    <circle cx="130" cy="336" r="10"/>
-    <circle cx="520" cy="86" r="10"/>
-    <circle cx="520" cy="220" r="10"/>
-    <circle cx="840" cy="186" r="10"/>
-    <circle cx="1090" cy="110" r="10"/>
-    <circle cx="990" cy="322" r="10"/>
-    <circle cx="1490" cy="178" r="10"/>
-  </g>
+  <g transform="translate(414 78)">
+    <text x="0" y="40" fill="#35d2c7" font-size="21" font-weight="600" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="8">CURATED OPERATOR CONTROL SURFACE</text>
+    <text x="0" y="138" fill="#dfe6ee" font-size="84" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="-2">ExecuteC2</text>
+    <text x="610" y="138" fill="#ff616d" font-size="84" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="-2">Command</text>
+    <text x="0" y="198" fill="#97a2b2" font-size="34" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Encrypted listeners, operator sync, and task dispatch for authorized red team operations</text>
 
-  <g filter="url(#shadow)">
-    <rect x="430" y="68" width="740" height="284" rx="28" fill="url(#panel)" stroke="#d0c4ae" stroke-width="2"/>
-  </g>
-
-  <g transform="translate(500 106)">
-    <g>
-      <path d="M164 40 228 72 228 136 164 168 100 136 100 72Z" fill="#20313a"/>
-      <path d="M164 52 214 77 214 131 164 156 114 131 114 77Z" fill="#f4ead8"/>
-      <path d="M164 65 201 84 201 124 164 143 127 124 127 84Z" fill="url(#signal)"/>
-      <path d="M164 84 183 94 183 114 164 124 145 114 145 94Z" fill="#fffdf8"/>
+    <g transform="translate(0 230)" filter="url(#cardShadow)">
+      <rect width="312" height="54" rx="16" fill="#0d131b" stroke="#313948" stroke-width="2"/>
+      <text x="24" y="35" fill="#35d2c7" font-size="28" font-weight="700" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" letter-spacing="1">AES-GCM / WSS / REST</text>
     </g>
 
-    <g transform="translate(270 0)">
-      <text x="0" y="76" fill="#20313a" font-size="72" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="2">ExecuteC2</text>
-      <text x="2" y="118" fill="#5f6e71" font-size="20" font-weight="600" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" letter-spacing="4">TASKING / TRANSPORT / OPERATOR SYNC</text>
-      <rect x="0" y="142" width="280" height="12" rx="6" fill="#d9d0c3"/>
-      <rect x="0" y="142" width="194" height="12" rx="6" fill="url(#signal)"/>
-      <text x="0" y="192" fill="#2f6b63" font-size="18" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="2">AUTHORIZED RED TEAM INFRASTRUCTURE</text>
-    </g>
-  </g>
-
-  <g transform="translate(1220 94)">
-    <rect width="232" height="194" rx="22" fill="#f8f3ea" fill-opacity="0.86" stroke="#d0c4ae" stroke-width="1.5"/>
-    <text x="28" y="44" fill="#5f6e71" font-size="15" font-weight="700" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" letter-spacing="2">CONTROL PLANE</text>
-    <g transform="translate(28 72)" stroke="#20313a" stroke-width="2.4" fill="none" stroke-linecap="round">
-      <path d="M0 20 H54"/>
-      <path d="M54 20 86 0 122 0 152 20 176 20"/>
-      <path d="M54 20 86 40 122 40 152 20"/>
-      <circle cx="0" cy="20" r="6" fill="#2f6b63" stroke="none"/>
-      <circle cx="54" cy="20" r="6" fill="#a83c2e" stroke="none"/>
-      <circle cx="86" cy="0" r="6" fill="#20313a" stroke="none"/>
-      <circle cx="86" cy="40" r="6" fill="#20313a" stroke="none"/>
-      <circle cx="122" cy="0" r="6" fill="#2f6b63" stroke="none"/>
-      <circle cx="122" cy="40" r="6" fill="#2f6b63" stroke="none"/>
-      <circle cx="152" cy="20" r="6" fill="#a83c2e" stroke="none"/>
-      <circle cx="176" cy="20" r="6" fill="#20313a" stroke="none"/>
-    </g>
-    <text x="28" y="148" fill="#20313a" font-size="16" font-weight="600" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Encrypted listeners</text>
-    <text x="28" y="174" fill="#20313a" font-size="16" font-weight="600" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Real-time operator state</text>
+    <text x="338" y="267" fill="#717887" font-size="26" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">FASTAPI • ASYNCIO • SQLITE • PLUGINS</text>
   </g>
 </svg>
