@@ -71,15 +71,15 @@
 
   <g transform="translate(414 78)">
     <text x="0" y="40" fill="#35d2c7" font-size="21" font-weight="600" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="8">CURATED OPERATOR CONTROL SURFACE</text>
-    <text x="0" y="138" fill="#dfe6ee" font-size="84" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="-2">ExecuteC2</text>
-    <text x="610" y="138" fill="#ff616d" font-size="84" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="-2">Command</text>
-    <text x="0" y="198" fill="#97a2b2" font-size="34" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Encrypted listeners, operator sync, and task dispatch for authorized red team operations</text>
+    <text x="0" y="132" fill="#dfe6ee" font-size="90" font-weight="700" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif" letter-spacing="-2">ExecuteC2</text>
+    <text x="0" y="190" fill="#97a2b2" font-size="31" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">Encrypted listeners, operator sync, and task dispatch</text>
+    <text x="0" y="226" fill="#97a2b2" font-size="31" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">for authorized red team operations</text>
 
-    <g transform="translate(0 230)" filter="url(#cardShadow)">
+    <g transform="translate(0 252)" filter="url(#cardShadow)">
       <rect width="312" height="54" rx="16" fill="#0d131b" stroke="#313948" stroke-width="2"/>
       <text x="24" y="35" fill="#35d2c7" font-size="28" font-weight="700" font-family="'IBM Plex Mono', 'SFMono-Regular', monospace" letter-spacing="1">AES-GCM / WSS / REST</text>
     </g>
 
-    <text x="338" y="267" fill="#717887" font-size="26" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">FASTAPI • ASYNCIO • SQLITE • PLUGINS</text>
+    <text x="338" y="289" fill="#717887" font-size="26" font-weight="500" font-family="'IBM Plex Sans', 'Segoe UI', sans-serif">FASTAPI • ASYNCIO • SQLITE • PLUGINS</text>
   </g>
 </svg>
